@@ -44,9 +44,11 @@ except Exception:
 sys.path.insert(0, str(APP_DIR))
 from places import Places  # noqa: E402
 from ai import AI, MODELS, DEFAULT_MODEL, LABELS, MK2EN, labels_public  # noqa: E402
+from cloud import CloudAI, CLOUD_MODELS, DEFAULT_CLOUD_MODEL  # noqa: E402
+from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.1.1"
+VERSION = "2.2"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -274,7 +276,7 @@ class Library:
             """)
             cols = {r["name"] for r in self.db.execute("PRAGMA table_info(photos)")}
             for c, t in (("app", "TEXT"), ("orig", "TEXT"), ("place", "TEXT"), ("country", "TEXT"),
-                         ("rot", "INTEGER DEFAULT 0"), ("ai_done", "INTEGER DEFAULT 0"), ("how", "TEXT")):
+                         ("rot", "INTEGER DEFAULT 0"), ("ai_done", "INTEGER DEFAULT 0"), ("how", "TEXT"), ("caption", "TEXT"), ("cloud_done", "INTEGER DEFAULT 0")):
                 if c not in cols:
                     self.db.execute(f"ALTER TABLE photos ADD COLUMN {c} {t}")
             try:
@@ -533,29 +535,149 @@ class Library:
             with self.db_lock:
                 for r, e, tags in zip(ok, E, results):
                     pid = r["id"]
-                    hidden = {x["tag"] for x in self.db.execute("SELECT tag FROM hidden_tags WHERE photo_id=?", (pid,))}
-                    self.db.execute("DELETE FROM tags WHERE photo_id=? AND by='ai'", (pid,))
-                    shown = [(t, s) for t, s in tags if not t.startswith("_") and t not in hidden][:3]
-                    top = tags[0] if tags else ("", 0)
-                    for t, s in shown:
-                        if t == "Скриншот":
-                            continue  # скриншотите се посебен тип, не ознака
-                        self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, s, "ai"))
+                    self._write_ai_tags(pid, tags)
                     self.db.execute("INSERT OR REPLACE INTO emb VALUES(?,?)", (pid, e.astype(np.float16).tobytes()))
-                    # ВИ потврдува/поправа скриншот само ако нема податоци од камера
+                    top = tags[0][0] if tags else ""
+                    # ВИ поправа скриншот само кога нема податоци од камера ниту име „Screenshot“
                     if not r["cam"] and r["kind"] != "video" and r["app"] != "Скриншот":
-                        # ВИ поправа скриншот само кога нема податоци од камера ниту име „Screenshot“
                         new_kind = r["kind"]
-                        if top[0] == "Скриншот" and top[1] >= 0.25:
+                        if top == "Скриншот":
                             new_kind = "screenshot"
-                        elif r["kind"] == "screenshot" and top[1] >= 0.30 and top[0] not in ("Скриншот", "Документи", "Мемиња и графики", "Мапа", "_предмет"):
+                        elif r["kind"] == "screenshot" and top and top not in ("Документи", "Мемиња и графики", "Мапа", "Белешки и табла"):
                             new_kind = "photo"
                         if new_kind != r["kind"]:
                             self._move_kind(pid, r["path"], datetime.fromisoformat(r["taken"]), new_kind)
                     self.db.execute("UPDATE photos SET ai_done=1 WHERE id=?", (pid,))
                 self.db.commit()
             self.emb_cache = None
+            self.apply_learned([r["id"] for r in ok])
         self.status["ai_done"] += len(rows)
+        self.bump()
+        return True
+
+    def _write_ai_tags(self, pid, tags):
+        hidden = {x["tag"] for x in self.db.execute("SELECT tag FROM hidden_tags WHERE photo_id=?", (pid,))}
+        self.db.execute("DELETE FROM tags WHERE photo_id=? AND by='ai'", (pid,))
+        if self.db.execute("SELECT 1 FROM photos WHERE id=? AND cloud_done=1", (pid,)).fetchone():
+            return  # Claude веќе ја опишал: неговите ознаки имаат предност
+        user = {x["tag"] for x in self.db.execute("SELECT tag FROM tags WHERE photo_id=? AND by!='ai'", (pid,))}
+        for t, sc in tags:
+            if t.startswith("_") or t == "Скриншот" or t in hidden or t in user:
+                continue  # скриншотите се посебен тип; одбиените ознаки не се враќаат
+            self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, sc, "ai"))
+
+    def reclassify(self, ai):
+        """Нови категории или нова логика: ознаките се пресметуваат од зачуваните вектори, без повторна анализа."""
+        import numpy as np
+        ids, M = self.emb_matrix()
+        if not len(ids) or ai.L is None or M.shape[1] != ai.L.shape[1]:
+            return
+        for k in range(0, len(ids), 512):
+            res = ai.classify(M[k:k + 512])
+            with self.db_lock:
+                for pid, tags in zip(ids[k:k + 512], res):
+                    self._write_ai_tags(int(pid), tags)
+                self.db.commit()
+        self.learn_all()
+        self.bump()
+
+    # ---- учење од корисникот: рачно ставена ознака се пренесува на многу слични слики
+    def learn(self, tag):
+        import numpy as np
+        ids, M = self.emb_matrix()
+        with self.db_lock:
+            self.db.execute("DELETE FROM tags WHERE tag=? AND by='learned'", (tag,))
+            ex = [r["photo_id"] for r in self.db.execute("SELECT photo_id FROM tags WHERE tag=? AND by='user'", (tag,))]
+            hidden = {r["photo_id"] for r in self.db.execute("SELECT photo_id FROM hidden_tags WHERE tag=?", (tag,))}
+            have = {r["photo_id"] for r in self.db.execute("SELECT photo_id FROM tags WHERE tag=?", (tag,))}
+            pos = {int(i): n for n, i in enumerate(ids)}
+            rows = [pos[i] for i in ex if i in pos]
+            if rows and len(ids) > 1:
+                P = M[rows]
+                proto = P.mean(0)
+                proto /= np.linalg.norm(proto) + 1e-9
+                s = M @ proto
+                ss = s[[i for i in range(len(ids)) if int(ids[i]) not in set(ex)]] if len(ids) > len(rows) else s
+                mu, sd = float(ss.mean()), float(ss.std() or 1e-6)
+                # праг: многу над просекот на библиотеката; со 3+ примери и блиску до најразличниот пример
+                own = float((P @ proto).min()) - 0.05 if len(rows) >= 3 else -1.0
+                thr = max(min(mu + 2.5 * sd, 0.92), own, 0.60)
+                hits = [i for i in np.argsort(-s) if s[i] >= thr][:max(30, 40 * len(rows))]
+                for i in hits:
+                    pid = int(ids[i])
+                    if pid not in have and pid not in hidden:
+                        self.db.execute("INSERT OR IGNORE INTO tags VALUES(?,?,?,?)", (pid, tag, float(s[i]), "learned"))
+            self.db.commit()
+        self.bump()
+
+    def learn_all(self):
+        with self.db_lock:
+            tags = [r["tag"] for r in self.db.execute("SELECT DISTINCT tag FROM tags WHERE by='user'")]
+        for t in tags:
+            self.learn(t)
+
+    def apply_learned(self, pids):
+        """Новите слики ги добиваат и ознаките што си ги научил апликацијата."""
+        import numpy as np
+        if not pids:
+            return
+        with self.db_lock:
+            tags = [r["tag"] for r in self.db.execute("SELECT DISTINCT tag FROM tags WHERE by='user'")]
+        for t in tags:
+            self.learn(t)
+
+    # ---- Claude (облак)
+    def cloud_pending(self):
+        with self.db_lock:
+            return self.db.execute("SELECT COUNT(*) c FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video'").fetchone()["c"]
+
+    def cloud_step(self, cloud, labels, workers=3):
+        with self.db_lock:
+            rows = self.db.execute("SELECT id,path,kind,cam,app,taken,rot FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video' LIMIT ?",
+                                   (workers * 2,)).fetchall()
+        if not rows:
+            return False
+        known = {mk for mk, _ in labels}
+
+        def one(r):
+            f = self.abs(r["path"])
+            try:
+                jpeg = cloud.image_bytes(f, r["rot"] or 0)
+            except Exception:
+                jpeg = cloud.image_bytes(self.thumbs / f"{r['id']}.jpg")  # RAW и слично: преку сликичката
+            return r, cloud.describe(jpeg, labels)
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            results = []
+            for fut in [ex.submit(one, r) for r in rows]:
+                try:
+                    results.append(fut.result())
+                except Exception as e:
+                    print("Claude:", e)
+                    if cloud.state == "error":
+                        return False
+        with self.db_lock:
+            for r, d in results:
+                pid = r["id"]
+                if d is None:
+                    self.db.execute("UPDATE photos SET cloud_done=2 WHERE id=?", (pid,))
+                    continue
+                hidden = {x["tag"] for x in self.db.execute("SELECT tag FROM hidden_tags WHERE photo_id=?", (pid,))}
+                user = {x["tag"] for x in self.db.execute("SELECT tag FROM tags WHERE photo_id=? AND by='user'", (pid,))}
+                self.db.execute("DELETE FROM tags WHERE photo_id=? AND by IN ('ai','cloud')", (pid,))
+                tags = [t.strip() for t in (d.get("tags") or []) if t.strip() in known][:5]
+                tags += [t.strip()[:40] for t in (d.get("new_tags") or []) if t.strip()][:3]
+                for n, t in enumerate(dict.fromkeys(tags)):
+                    if t not in hidden and t not in user and t != "Скриншот":
+                        self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, 10.0 - n, "cloud"))
+                cap = " | ".join(x for x in (d.get("caption_mk", "").strip(), d.get("caption_en", "").strip()) if x)
+                self.db.execute("UPDATE photos SET caption=?, cloud_done=1 WHERE id=?", (cap[:500], pid))
+                k = d.get("kind")
+                if not r["cam"] and r["app"] != "Скриншот" and r["kind"] != "video" and k in ("photo", "screenshot", "document"):
+                    nk = "screenshot" if k == "screenshot" else "photo"
+                    if nk != r["kind"]:
+                        self._move_kind(pid, r["path"], datetime.fromisoformat(r["taken"]), nk)
+            self.db.commit()
         self.bump()
         return True
 
@@ -584,12 +706,14 @@ class Library:
     # ---- data for the UI
     def snapshot(self):
         with self.db_lock:
-            rows = self.db.execute("SELECT id,path,name,taken,size,w,h,cam,kind,lat,lon,fav,trash,source,app,place,country,rot,ai_done FROM photos ORDER BY taken DESC").fetchall()
+            rows = self.db.execute("SELECT id,path,name,taken,size,w,h,cam,kind,lat,lon,fav,trash,source,app,place,country,rot,ai_done,caption,cloud_done FROM photos ORDER BY taken DESC").fetchall()
             ap, tg = {}, {}
             for r in self.db.execute("SELECT album_id, photo_id FROM album_photos"):
                 ap.setdefault(r["photo_id"], []).append(r["album_id"])
-            for r in self.db.execute("SELECT photo_id, tag, by FROM tags ORDER BY score DESC"):
+            tb = {}
+            for r in self.db.execute("SELECT photo_id, tag, by FROM tags ORDER BY by='user' DESC, score DESC"):
                 tg.setdefault(r["photo_id"], []).append(r["tag"])
+                tb.setdefault(r["photo_id"], {})[r["tag"]] = r["by"]
             albums = [dict(r) for r in self.db.execute("SELECT * FROM albums ORDER BY name")]
             dups = self.db.execute("SELECT COUNT(*) c FROM seen WHERE result='duplicate'").fetchone()["c"]
         mine = [p for p in self.cfg.get("my_places", []) if p.get("lat") is not None]
@@ -602,7 +726,7 @@ class Library:
                 if haversine(lat, lon, m["lat"], m["lon"]) <= r and r < br:
                     best, br = m["name"], r
             return best
-        photos = [dict(r, albums=ap.get(r["id"], []), tags=tg.get(r["id"], []), myplace=myplace(r["lat"], r["lon"])) for r in rows]
+        photos = [dict(r, albums=ap.get(r["id"], []), tags=tg.get(r["id"], []), tagby=tb.get(r["id"], {}), myplace=myplace(r["lat"], r["lon"])) for r in rows]
         try:
             total = shutil.disk_usage(self.root)[0]
         except Exception:
@@ -634,10 +758,14 @@ class Library:
                 if t:
                     self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, 1.0, "user"))
                     self.db.execute("DELETE FROM hidden_tags WHERE photo_id=? AND tag=?", (pid, t))
+                    self._learn_soon(t)
             if "remove_tag" in data:
                 t = str(data["remove_tag"])
+                was_user = self.db.execute("SELECT 1 FROM tags WHERE photo_id=? AND tag=? AND by='user'", (pid, t)).fetchone()
                 self.db.execute("DELETE FROM tags WHERE photo_id=? AND tag=?", (pid, t))
                 self.db.execute("INSERT OR IGNORE INTO hidden_tags VALUES(?,?)", (pid, t))
+                if was_user:
+                    self._learn_soon(t)
             if "taken" in data:
                 try:
                     t = datetime.fromisoformat(str(data["taken"])[:19])
@@ -706,6 +834,21 @@ class Library:
                 self.db.execute("DELETE FROM album_photos WHERE album_id=?", (aid,))
             self.db.commit()
         self.bump()
+
+    def _learn_soon(self, tag):
+        # повеќе ознаки одеднаш (избор на многу слики) → едно учење по ознака
+        self._pending_learn = getattr(self, "_pending_learn", set())
+        if tag in self._pending_learn:
+            return
+        self._pending_learn.add(tag)
+        def run():
+            time.sleep(1.0)
+            self._pending_learn.discard(tag)
+            try:
+                self.learn(tag)
+            except Exception as e:
+                print("Учење:", e)
+        threading.Thread(target=run, daemon=True).start()
 
     def reset_ai(self):
         """Ги брише старите ВИ-ознаки и вектори (нов модел или нови категории) и ги анализира сликите одново."""
@@ -984,17 +1127,49 @@ class App:
                 except OSError:
                     pass
         self.ai = AI(DATA_DIR / "models", self.cfg.get("model", DEFAULT_MODEL))
-        sig = f"{self.ai.model_id}:" + hashlib.sha1("|".join(l[0] for l in LABELS).encode("utf-8")).hexdigest()[:10]
-        if self.cfg.get("labels_sig") != sig:
-            self.lib.reset_ai()
-            self.cfg["labels_sig"] = sig
-            save_config(self.cfg)
+        self.ai.set_custom(self.cfg.get("my_categories", []))
+        self.cloud = CloudAI()
+        self.cloud.configure(self.cfg.get("cloud_enabled"), self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
+        self.need_reclassify = False
+        sig = self.labels_sig()
+        old = str(self.cfg.get("labels_sig", ""))
+        if old.split(":")[0] != self.ai.model_id:
+            self.lib.reset_ai()          # друг модел → нова анализа
+        elif old != sig:
+            self.need_reclassify = True   # нови категории/логика → само повторно оценување
+        self.cfg["labels_sig"] = sig
+        save_config(self.cfg)
         self.wake = threading.Event()
         self.httpd = None
         self._autostart = autostart_on()
 
+    def labels_sig(self):
+        from ai import Z_MIN, BACKGROUND
+        key = json.dumps([[l[0] for l in LABELS], self.cfg.get("my_categories", []), Z_MIN, BACKGROUND], ensure_ascii=False)
+        return f"{self.ai.model_id}:" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
+
+    def cloud_labels(self):
+        return [(mk, en) for mk, en, _, _ in LABELS if not mk.startswith("_")] + \
+               [(c["name"], c.get("desc") or c["name"]) for c in self.cfg.get("my_categories", [])]
+
+    def cloud_worker(self):
+        while True:
+            try:
+                if self.cloud.state == "ready" and self.cfg.get("cloud_running", True) and self.lib.status["state"] != "scanning":
+                    if self.lib.cloud_step(self.cloud, self.cloud_labels()):
+                        continue
+            except Exception as e:
+                print("Claude worker:", e)
+                time.sleep(10)
+            time.sleep(3)
+
     def status(self):
         s = dict(self.lib.status)
+        s["cloud"] = self.cloud.info()
+        if self.cloud.state in ("ready", "error") and self.cloud.enabled:
+            n = self.lib.cloud_pending()
+            s["cloud"]["pending"] = n
+            s["cloud"]["est_usd"] = round(n * CLOUD_MODELS[self.cloud.model]["usd_per_1000"] / 1000, 2)
         s["ai"] = self.ai.info()
         if self.ai.state == "ready":
             s["ai_pending"] = self.lib.ai_pending()
@@ -1005,7 +1180,11 @@ class App:
                 "watch_seconds": self.cfg["watch_seconds"], "configured": self.cfg["configured"], "ai": self.cfg.get("ai", True),
                 "version": VERSION, "windows": IS_WIN, "heif": HEIF, "ffmpeg": bool(FFMPEG), "autostart": self._autostart,
                 "log": str(LOG_PATH), "model": self.ai.model_id, "my_places": self.cfg.get("my_places", []),
-                "tag_lang": self.cfg.get("tag_lang", "mk"), "can_uninstall": uninstaller() is not None,
+                "tag_lang": self.cfg.get("tag_lang", "mk"), "my_categories": self.cfg.get("my_categories", []),
+                "cloud_enabled": bool(self.cfg.get("cloud_enabled")), "cloud_model": self.cloud.model,
+                "cloud_key_hint": ("…" + self.cfg["cloud_key"][-4:]) if self.cfg.get("cloud_key") else "",
+                "cloud_running": self.cfg.get("cloud_running", True),
+                "cloud_models": [{"id": k, "name": v["name"], "usd_per_1000": v["usd_per_1000"]} for k, v in CLOUD_MODELS.items()], "can_uninstall": uninstaller() is not None,
                 "models": [{"id": k, "name": v["name"], "name_en": v["name_en"], "about": v["about"], "multilingual": v["multilingual"]} for k, v in MODELS.items()]}
 
     def update_config(self, data):
@@ -1026,6 +1205,35 @@ class App:
             self.cfg["ai"] = bool(data["ai"])
         if data.get("tag_lang") in ("mk", "en"):
             self.cfg["tag_lang"] = data["tag_lang"]
+        if any(k in data for k in ("cloud_enabled", "cloud_key", "cloud_model", "cloud_running")):
+            if "cloud_key" in data and str(data["cloud_key"]).strip():
+                self.cfg["cloud_key"] = str(data["cloud_key"]).strip()
+            if data.get("cloud_model") in CLOUD_MODELS:
+                self.cfg["cloud_model"] = data["cloud_model"]
+            if "cloud_enabled" in data:
+                self.cfg["cloud_enabled"] = bool(data["cloud_enabled"])
+            if "cloud_running" in data:
+                self.cfg["cloud_running"] = bool(data["cloud_running"])
+            if data.get("cloud_scope") == "new":
+                with self.lib.db_lock:  # постојните слики не се праќаат, само новите
+                    self.lib.db.execute("UPDATE photos SET cloud_done=3 WHERE cloud_done=0")
+                    self.lib.db.commit()
+            elif data.get("cloud_scope") == "all":
+                with self.lib.db_lock:
+                    self.lib.db.execute("UPDATE photos SET cloud_done=0 WHERE cloud_done=3")
+                    self.lib.db.commit()
+            self.cloud.configure(self.cfg.get("cloud_enabled"), self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
+        if "my_categories" in data:
+            cats = []
+            for c in data["my_categories"]:
+                n = str(c.get("name", "")).strip()[:40]
+                if n and n not in [x["name"] for x in cats]:
+                    cats.append({"name": n, "desc": str(c.get("desc", "")).strip()[:200]})
+            self.cfg["my_categories"] = cats
+            self.ai.set_custom(cats)
+            self.cfg["labels_sig"] = self.labels_sig()
+            if self.ai.state == "ready":
+                threading.Thread(target=self.lib.reclassify, args=(self.ai,), daemon=True).start()
         if "my_places" in data:
             mp = []
             for m in data["my_places"]:
@@ -1063,8 +1271,16 @@ class App:
                 self.ai.load()
             elif self.cfg.get("ai_requested"):
                 self.ai.download()  # продолжи симнување што беше прекинато
+        if self.ai.state == "ready":
+            try:
+                self.lib.learn_all()  # научените ознаки се пресметуваат и за слики додадени во меѓувреме
+            except Exception as e:
+                print("Учење:", e)
         while True:
             try:
+                if self.need_reclassify and self.ai.state == "ready":
+                    self.need_reclassify = False
+                    self.lib.reclassify(self.ai)
                 if self.ai.state == "ready" and self.cfg.get("ai", True) and self.lib.status["state"] != "scanning":
                     if self.lib.ai_step(self.ai):
                         continue
@@ -1079,7 +1295,8 @@ class App:
         self.cfg["model"] = model_id
         self.ai = AI(DATA_DIR / "models", model_id)
         self.lib.reset_ai()
-        self.cfg["labels_sig"] = f"{model_id}:" + hashlib.sha1("|".join(l[0] for l in LABELS).encode("utf-8")).hexdigest()[:10]
+        self.ai.set_custom(self.cfg.get("my_categories", []))
+        self.cfg["labels_sig"] = self.labels_sig()
         save_config(self.cfg)
         if self.ai.state == "not_downloaded":
             threading.Thread(target=self.ai.download, daemon=True).start()
@@ -1399,6 +1616,7 @@ def main():
     print("Овој прозорец може да остане минимизиран. Затвори го за да ја исклучиш апликацијата.")
     threading.Thread(target=app.watcher, daemon=True).start()
     threading.Thread(target=app.ai_worker, daemon=True).start()
+    threading.Thread(target=app.cloud_worker, daemon=True).start()
     if not no_browser:
         threading.Timer(0.6, lambda: open_in_chrome(url)).start()
     try:

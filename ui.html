@@ -394,7 +394,7 @@ function buildEvents(){
 }
 
 // ===================================================================== filtering
-const searchText=p=>(p._s||(p._s=[p.name,p.place,p.myplace,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...(p.tags||[]).map(t=>TAG_EN[t]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
+const searchText=p=>(p._s||(p._s=[p.caption,p.name,p.place,p.myplace,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...(p.tags||[]).map(t=>TAG_EN[t]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
 function baseList(){
   const now=Date.now(),v=state.view,k=state.key;
   let ev=v==='event'?new Set((events.find(e=>e.id===k)||{ids:[]}).ids):null;
@@ -503,13 +503,18 @@ function renderNotices(){
   if(ai.state==='downloading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го симнувам моделот за препознавање…</b><div class="sub num">${Math.round(ai.progress*100)}% · ова се прави само еднаш</div></div></div><div class="progress"><i style="width:${Math.round(ai.progress*100)}%"></i></div></div>`);
   if(ai.state==='loading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го подготвувам препознавањето…</b><div class="sub">Првиот пат трае околу една минута.</div></div></div></div>`);
   if(ai.state==='ready'&&s.ai_pending>0&&s.state!=='scanning'){const tot=s.ai_pending+s.ai_done;n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Препознавам што има на сликите…</b><div class="sub num">Уште ${s.ai_pending} ${s.ai_pending===1?'слика':'слики'}. Може слободно да ја користиш апликацијата.</div></div></div><div class="progress"><i style="width:${tot?Math.round(s.ai_done/tot*100):0}%"></i></div></div>`)}
+  const cl=s.cloud||{};
+  if(cl.state==='ready'&&cl.pending>0&&cfg.cloud_running!==false&&s.state!=='scanning')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Claude ги опишува сликите…</b><div class="sub num">Уште ${cl.pending} · проценка ≈ $${cl.est_usd}</div></div></div><button class="btn sm" data-act="cloudpause">Паузирај</button></div>`);
+  if(cl.state==='error'&&cfg.cloud_enabled)n.push(`<div class="notice"><div class="t"><div><b>Claude не работи.</b><div class="sub">${esc(cl.message)}</div></div></div><button class="btn sm" data-act="settings">Поставки</button></div>`);
   if(ai.state==='error')n.push(`<div class="notice"><div class="t"><div><b>Препознавањето не работи.</b><div class="sub">${esc(ai.message)}</div></div></div><button class="btn sm" data-act="ai">Пробај повторно</button></div>`);
   if(ai.state==='missing_deps'&&data.photos.length&&!store.get('hideDeps',false))n.push(`<div class="notice"><div class="t"><div><b>Препознавањето не е инсталирано.</b><div class="sub">${esc(ai.message)}</div></div></div><button class="btn sm ghost" data-act="hidedeps">Сокриј</button></div>`);
   $('notices').innerHTML=n.join('');
   $('notices').querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const a=b.dataset.act;
     if(a==='ai'){await api('/api/ai/enable',{});toast('Почнува симнувањето на моделот');refreshStatus()}
     if(a==='addwatch')addWatchFolder();
-    if(a==='hidedeps'){store.set('hideDeps',true);renderNotices()}});
+    if(a==='hidedeps'){store.set('hideDeps',true);renderNotices()}
+    if(a==='settings')settings();
+    if(a==='cloudpause'){cfg=await api('/api/config',{cloud_running:false});toast('Claude е паузиран. Продолжи од Поставки.');renderNotices()}});
 }
 
 // ===================================================================== main render
@@ -670,7 +675,7 @@ function showLb(){
   const albums=p.albums.map(a=>data.albums.find(x=>x.id===a)).filter(Boolean);
   const loc=p.lat!=null?`https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lon}#map=14/${p.lat}/${p.lon}`:'';
   const pad=.01;
-  $('info').innerHTML=`<div><div class="eyebrow">${esc(KINDS[p.kind])}${p.app?' · '+esc(p.app):''}</div><h3>${esc(p.name)}</h3></div>
+  $('info').innerHTML=`<div><div class="eyebrow">${esc(KINDS[p.kind])}${p.app?' · '+esc(p.app):''}</div><h3>${esc(p.name)}</h3>${p.caption?`<p style="margin:8px 0 0;color:#C8CDD8;font-size:13.5px;line-height:1.45">${esc((cfg.tag_lang==='en'?p.caption.split(' | ')[1]:p.caption.split(' | ')[0])||p.caption)}</p>`:''}</div>
     <div class="acts">
       <button class="btn sm" id="lb-fav">${p.fav?'♥ Омилена':'♡ Омилени'}</button>
       ${p.kind!=='video'?'<button class="btn sm" id="lb-rot" title="Ротирај">↻ Ротирај</button>':''}
@@ -687,7 +692,7 @@ function showLb(){
       <dt>Големина</dt><dd class="num">${fmtSize(p.size)}</dd>
       <dt>Папка</dt><dd>${esc(p.path.split('/').slice(0,-1).join(' › '))}</dd>
     </dl>
-    <div><div class="eyebrow">Ознаки</div><div class="tags" id="lb-tags">${(p.tags||[]).map(t=>`<span class="tag ${p.ai_done===1?'ai':''}" title="${esc(TAG_EN[t]||'')}">${esc(tagName(t))}<button data-rm="${esc(t)}" title="Тргни ја ознаката">×</button></span>`).join('')}<input class="tagin" id="lb-tagin" placeholder="+ ознака" list="taglist"><datalist id="taglist">${allTags().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div></div>
+    <div><div class="eyebrow">Ознаки</div><div class="tags" id="lb-tags">${(p.tags||[]).map(t=>`<span class="tag ${(p.tagby||{})[t]==='user'?'':'ai'}" title="${esc({ai:'Препознаено локално',cloud:'Препознаено од Claude',learned:'Научено од твоите ознаки',user:'Твоја ознака'}[(p.tagby||{})[t]]||'')}${TAG_EN[t]?' · '+esc(TAG_EN[t]):''}">${esc(tagName(t))}<button data-rm="${esc(t)}" title="Тргни ја ознаката">×</button></span>`).join('')}<input class="tagin" id="lb-tagin" placeholder="+ ознака" list="taglist"><datalist id="taglist">${allTags().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div></div>
     <div><div class="eyebrow">Албуми</div><div class="tags">${albums.map(a=>`<span class="tag">${esc(a.name)}<button data-ral="${a.id}" title="Тргни од албумот">×</button></span>`).join('')}<select id="lb-album" class="tagin" style="width:auto"><option value="">+ во албум</option>${data.albums.filter(a=>!p.albums.includes(a.id)).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div></div>
     ${p.kind!=='video'?'<div><div class="eyebrow">Хистограм</div><canvas class="hist" id="lb-hist" width="300" height="56"></canvas></div>':''}
     ${p.lat!=null?`<div><div class="eyebrow">Мапа</div><iframe loading="lazy" title="Мапа" src="https://www.openstreetmap.org/export/embed.html?bbox=${p.lon-pad},${p.lat-pad},${p.lon+pad},${p.lat+pad}&layer=mapnik&marker=${p.lat},${p.lon}"></iframe><a href="${loc}" target="_blank" rel="noopener" style="font-size:12px">Отвори поголема мапа</a></div>`:''}
@@ -702,7 +707,7 @@ function showLb(){
   $('lb-editdate').onclick=async()=>{const v=await dateBox(p.d);if(!v)return;await api(`/api/photo/${p.id}`,{taken:v});p.d=new Date(v);p.year=p.d.getFullYear();dirty=true;showLb();toast('Датумот е сменет')};
   $('info').querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{const t=b.dataset.rm;await api(`/api/photo/${p.id}`,{remove_tag:t});p.tags=p.tags.filter(x=>x!==t);p._s=null;dirty=true;showLb()});
   $('info').querySelectorAll('[data-ral]').forEach(b=>b.onclick=async()=>{const a=+b.dataset.ral;await api(`/api/albums/${a}/remove`,{ids:[p.id]});p.albums=p.albums.filter(x=>x!==a);dirty=true;showLb()});
-  $('lb-tagin').onkeydown=async e=>{if(e.key==='Enter'){const t=e.target.value.trim();if(!t)return;await api(`/api/photo/${p.id}`,{add_tag:t});p.tags=[...(p.tags||[]).filter(x=>x!==t),t];p._s=null;dirty=true;showLb();setTimeout(()=>$('lb-tagin')&&$('lb-tagin').focus(),0)}e.stopPropagation()};
+  $('lb-tagin').onkeydown=async e=>{if(e.key==='Enter'){const t=e.target.value.trim();if(!t)return;await api(`/api/photo/${p.id}`,{add_tag:t});p.tags=[...(p.tags||[]).filter(x=>x!==t),t];p.tagby={...(p.tagby||{}),[t]:'user'};p._s=null;dirty=true;showLb();toast(`„${t}“ е додадена. Сличните слики ќе ја добијат автоматски.`);setTimeout(()=>$('lb-tagin')&&$('lb-tagin').focus(),0)}e.stopPropagation()};
   $('lb-album').onchange=async e=>{const a=+e.target.value;if(!a)return;await api(`/api/albums/${a}/add`,{ids:[p.id]});p.albums.push(a);dirty=true;showLb()};
   if(p.kind!=='video')drawHist(p);
   loadHistory(p);
@@ -840,10 +845,21 @@ async function settings(){
       <label class="choice"><input type="radio" name="st-mode" value="move" ${cfg.mode==='move'?'checked':''}><span><b>Премести</b><small>Оригиналите се преместуваат во библиотеката.</small></span></label></div>
       <label class="muted">Провери за нови слики на секои <input type="number" id="st-int" min="10" max="3600" value="${cfg.watch_seconds}" style="width:90px"> секунди</label></div>
     <div class="setsec"><h4>Паметно препознавање</h4><p class="muted" style="margin:0">${esc(aiTxt)}</p>
-      <div class="flist">${(cfg.models||[]).map(m=>`<label class="choice"><input type="radio" name="st-model" value="${m.id}" ${cfg.model===m.id?'checked':''}><span><b>${esc(m.name)}${m.id==='siglip2'?' · препорачано':''}</b><small>${esc(m.about)}</small></span></label>`).join('')}</div>
+      <div class="flist">${(cfg.models||[]).map(m=>`<label class="choice"><input type="radio" name="st-model" value="${m.id}" ${cfg.model===m.id?'checked':''}><span><b>${esc(m.name)}${m.id==='siglip2-large'?' · препорачано':''}</b><small>${esc(m.about)}</small></span></label>`).join('')}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${ai.state==='ready'?'<button class="btn sm" id="st-re">Анализирај ги сите повторно</button>':ai.state!=='missing_deps'&&ai.state!=='downloading'&&ai.state!=='loading'?'<button class="btn sm primary" id="st-ai">Вклучи</button>':''}</div>
       <div><div class="eyebrow" style="margin-bottom:6px">Јазик на ознаките</div><div class="seg" style="display:inline-flex;width:auto"><button style="width:auto;padding:0 12px" data-tl="mk" aria-pressed="${cfg.tag_lang!=='en'}">Македонски</button><button style="width:auto;padding:0 12px" data-tl="en" aria-pressed="${cfg.tag_lang==='en'}">English</button></div>
       <p class="muted" style="margin:6px 0 0;font-size:12.5px">Пребарувањето работи на двата јазика без разлика на изборот.</p></div></div>
+    <div class="setsec"><h4>Мои категории</h4><p class="muted" style="margin:0">Додај работи што ти се важни, а ги нема во листата, на пример „Инокс машини“ или „Пекара“. Опиши ги со неколку зборови, на македонски или англиски.</p>
+      <div class="flist">${(cfg.my_categories||[]).map((c,i)=>`<div class="fitem"><span class="fp"><b>${esc(c.name)}</b><small>${esc(c.desc||'')}</small></span><button class="btn sm danger" data-delcat="${i}">Тргни</button></div>`).join('')||'<div class="muted">Нема свои категории.</div>'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="text" id="cat-name" placeholder="Име, пр. Инокс машини" style="flex:1;min-width:160px"><input type="text" id="cat-desc" placeholder="Опис, пр. машини од нерѓосувачки челик" style="flex:2;min-width:200px"><button class="btn sm primary" id="cat-add">Додај</button></div>
+      <p class="muted" style="margin:0;font-size:12.5px">Совет: кога рачно ќе ставиш ознака на слика, апликацијата сама ја става и на многу слични слики.</p></div>
+    <div class="setsec"><h4>Claude: најпрецизно препознавање (облак)</h4>
+      <p class="muted" style="margin:0">Claude ја гледа сликата како човек и ја опишува на македонски и англиски, со точни ознаки, на пример „Инокс машини во производство“. Ова е најдобриот избор за точност.</p>
+      <p class="muted" style="margin:0;font-size:12.5px"><b>Важно:</b> намалена копија од секоја слика (најмногу 1024 px) се праќа до Anthropic. Потребен е API клуч од console.anthropic.com и се плаќа по слика. Оригиналите остануваат на компјутерот.</p>
+      <label class="choice"><input type="checkbox" id="cl-on" ${cfg.cloud_enabled?'checked':''}><span><b>Користи Claude</b><small>${(status.cloud||{}).state==='ready'?'Вклучено'+((status.cloud||{}).pending!=null?` · уште ${(status.cloud||{}).pending} слики · ≈ $${(status.cloud||{}).est_usd}`:''):(status.cloud||{}).message||'Исклучено'}</small></span></label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="password" id="cl-key" placeholder="${cfg.cloud_key_hint?'Клучот е зачуван ('+esc(cfg.cloud_key_hint)+')':'API клуч: sk-ant-…'}" style="flex:1;min-width:220px" autocomplete="off"><button class="btn sm" id="cl-savekey">Зачувај клуч</button></div>
+      <div class="flist">${(cfg.cloud_models||[]).map(m=>`<label class="choice"><input type="radio" name="cl-model" value="${m.id}" ${cfg.cloud_model===m.id?'checked':''}><span><b>${esc(m.name)}</b><small>околу $${m.usd_per_1000} за 1000 слики</small></span></label>`).join('')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="cl-all">Опиши ги сите слики</button><button class="btn sm" id="cl-new">Само новите слики</button>${cfg.cloud_running===false?'<button class="btn sm primary" id="cl-resume">Продолжи</button>':'<button class="btn sm" id="cl-pause">Паузирај</button>'}</div></div>
     <div class="setsec"><h4>Мои места</h4><p class="muted" style="margin:0">Сликите снимени во близина на овие места се означуваат со нивното име, на пример Дома или Работа. Работи за сликите со GPS локација.</p>
       <div class="flist">${(cfg.my_places||[]).map((m,i)=>`<div class="fitem"><span class="fp"><b>${esc(m.name)}</b><small class="num">${m.lat.toFixed(5)}, ${m.lon.toFixed(5)} · радиус ${m.radius>=1000?(m.radius/1000)+' km':m.radius+' m'}</small></span><button class="btn sm" data-edplace="${i}">Измени</button><button class="btn sm danger" data-rmplace="${i}">Тргни</button></div>`).join('')||'<div class="muted">Сè уште нема поставени места.</div>'}</div>
       <div><button class="btn sm" id="st-addplace">${I.plus.replace('<svg','<svg width="15" height="15"')} Додај место</button></div></div>
@@ -861,8 +877,19 @@ async function settings(){
   c.querySelector('#st-lib').onclick=async()=>{if(!await confirmBox('Нова библиотека почнува празна, а постојната останува на дискот. Продолжи?','Продолжи'))return settings();const p=await pickFolder('Избери нова локација за библиотеката');if(p){await save({library:p});await load()}settings()};
   c.querySelectorAll('[name=st-mode]').forEach(r=>r.onchange=()=>save({mode:r.value}));
   c.querySelector('#st-int').onchange=e=>save({watch_seconds:+e.target.value||30});
-  c.querySelectorAll('[name=st-model]').forEach(r=>r.onchange=async()=>{if(!await confirmBox('Сликите ќе се анализираат одново со новиот модел. Моделот се симнува еднаш. Продолжи?','Смени модел')){settings();return}await api('/api/ai/model',{model:r.value});toast('Моделот е сменет. Почнува симнувањето и анализата.');closeModal();refreshStatus()});
+  c.querySelectorAll('[name=st-model]').forEach(r=>r.onchange=async()=>{if(!await confirmBox('Сликите ќе се анализираат одново со новиот модел. Моделот се симнува еднаш (поголемите се побавни). Продолжи?','Смени модел')){settings();return}await api('/api/ai/model',{model:r.value});toast('Моделот е сменет. Почнува симнувањето и анализата.');closeModal();refreshStatus()});
   c.querySelectorAll('[data-tl]').forEach(b=>b.onclick=async()=>{await save({tag_lang:b.dataset.tl});render();settings()});
+  c.querySelectorAll('[data-delcat]').forEach(b=>b.onclick=async()=>{const mc=[...(cfg.my_categories||[])];mc.splice(+b.dataset.delcat,1);await save({my_categories:mc});toast('Категоријата е тргната');settings()});
+  c.querySelector('#cat-add').onclick=async()=>{const n=c.querySelector('#cat-name').value.trim(),d=c.querySelector('#cat-desc').value.trim();if(!n){toast('Внеси име');return}await save({my_categories:[...(cfg.my_categories||[]),{name:n,desc:d}]});toast(`„${n}“ е додадена. Сликите се оценуваат одново.`);settings()};
+  c.querySelector('#cl-on').onchange=async e=>{if(e.target.checked&&!cfg.cloud_key_hint&&!c.querySelector('#cl-key').value.trim()){e.target.checked=false;toast('Прво внеси API клуч');c.querySelector('#cl-key').focus();return}
+    const k=c.querySelector('#cl-key').value.trim();await save({cloud_enabled:e.target.checked,...(k?{cloud_key:k}:{})});await refreshStatus();settings()};
+  c.querySelector('#cl-savekey').onclick=async()=>{const k=c.querySelector('#cl-key').value.trim();if(!k.startsWith('sk-ant')){toast('Клучот треба да почнува со sk-ant');return}await save({cloud_key:k});toast('Клучот е зачуван');await refreshStatus();settings()};
+  c.querySelectorAll('[name=cl-model]').forEach(r=>r.onchange=()=>save({cloud_model:r.value}));
+  c.querySelector('#cl-all').onclick=async()=>{const n=data.photos.filter(p=>!p.trash&&p.kind!=='video'&&p.cloud_done!==1).length;const m=(cfg.cloud_models||[]).find(x=>x.id===cfg.cloud_model)||{usd_per_1000:10};
+    if(!await confirmBox(`Да се опишат ${n} слики со Claude? Проценета цена: околу $${(n*m.usd_per_1000/1000).toFixed(2)}.`,'Почни'))return;await save({cloud_scope:'all',cloud_running:true,cloud_enabled:true});await refreshStatus();closeModal()};
+  c.querySelector('#cl-new').onclick=async()=>{await save({cloud_scope:'new',cloud_running:true,cloud_enabled:true});toast('Claude ќе ги опишува само новите слики');await refreshStatus();settings()};
+  const clp=c.querySelector('#cl-pause');if(clp)clp.onclick=async()=>{await save({cloud_running:false});settings()};
+  const clr=c.querySelector('#cl-resume');if(clr)clr.onclick=async()=>{await save({cloud_running:true});await refreshStatus();settings()};
   c.querySelectorAll('[data-rmplace]').forEach(b=>b.onclick=async()=>{const mp=[...cfg.my_places];mp.splice(+b.dataset.rmplace,1);await save({my_places:mp});await load();settings()});
   c.querySelectorAll('[data-edplace]').forEach(b=>b.onclick=()=>myPlaceDialog({index:+b.dataset.edplace}));
   c.querySelector('#st-addplace').onclick=()=>myPlaceDialog();

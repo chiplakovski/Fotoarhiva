@@ -20,6 +20,20 @@ MODELS = {
                   "onnx-community/siglip2-base-patch16-384-ONNX"],
         "kind": "siglip", "ctx": 64, "multilingual": True, "approx_mb": 400,
     },
+    "siglip2-large": {
+        "name": "Голем (SigLIP 2 Large)", "name_en": "Large (SigLIP 2 Large)",
+        "about": "Попрецизен од Напредниот, македонски и англиски. Околу 900 MB, побавен.",
+        "repos": ["onnx-community/siglip2-large-patch16-256-ONNX", "onnx-community/siglip2-large-patch16-384-ONNX",
+                  "onnx-community/siglip2-large-patch16-512-ONNX"],
+        "kind": "siglip", "ctx": 64, "multilingual": True, "approx_mb": 900,
+    },
+    "siglip2-so400m": {
+        "name": "Максимален (SigLIP 2 So400m)", "name_en": "Maximum (SigLIP 2 So400m)",
+        "about": "Најпрецизен локален модел. Околу 1,5 GB, бавен на постари компјутери.",
+        "repos": ["onnx-community/siglip2-so400m-patch14-384-ONNX", "onnx-community/siglip2-so400m-patch16-384-ONNX",
+                  "onnx-community/siglip2-so400m-patch14-224-ONNX", "onnx-community/siglip2-so400m-patch16-256-ONNX"],
+        "kind": "siglip", "ctx": 64, "multilingual": True, "approx_mb": 1500,
+    },
     "clip": {
         "name": "Стандарден (OpenAI CLIP)", "name_en": "Standard (OpenAI CLIP)",
         "about": "Помал и побрз, послабо препознавање, само англиски. Околу 155 MB.",
@@ -80,6 +94,16 @@ LABELS = [
     ("Состанок", "Meeting", "Работа", ["a business meeting", "a conference room", "a presentation"]),
     ("Училиште", "School", "Работа", ["a classroom", "school children in class", "a school building"]),
     ("Градилиште", "Construction", "Работа", ["a construction site", "workers building a house"]),
+    ("Машини", "Machines", "Работа", ["industrial machines", "a machine in a factory", "metal machinery equipment", "a production machine"]),
+    ("Инокс опрема", "Stainless steel", "Работа", ["stainless steel equipment", "stainless steel tanks", "polished stainless steel machine", "stainless steel kitchen equipment"]),
+    ("Фабрика и производство", "Factory", "Работа", ["a factory production line", "an industrial workshop", "a manufacturing plant interior"]),
+    ("Магацин", "Warehouse", "Работа", ["a warehouse with shelves", "pallets and boxes in a warehouse"]),
+    ("Производи", "Products", "Работа", ["a product photo on a plain background", "products on display", "packaged products"]),
+    ("Метал и заварување", "Metalwork", "Работа", ["welding metal", "metal pipes and sheets", "a metal workshop"]),
+    ("Работни возила", "Work vehicles", "Работа", ["a truck", "a forklift", "a tractor", "an excavator"]),
+    ("Електрика и инсталации", "Electrical", "Работа", ["an electrical panel with cables", "electrical installation", "a circuit board"]),
+    ("Медицина", "Medical", "Работа", ["a hospital room", "medical equipment", "a doctor"]),
+    ("Апарати за дома", "Appliances", "Дом", ["a washing machine", "a refrigerator", "home appliances", "an oven"]),
     ("Луѓе", "People", "Луѓе", ["a photo of a person", "a portrait of a person"]),
     ("Селфи", "Selfie", "Луѓе", ["a selfie", "a close-up selfie of a face"]),
     ("Друштво", "Friends", "Луѓе", ["a group photo of friends", "a group of people smiling"]),
@@ -151,11 +175,13 @@ LABELS = [
     ("Макро", "Close-up", "Вид", ["a macro close-up photo"]),
     ("Црно-бело", "Black & white", "Вид", ["a black and white photo"]),
     ("Стара фотографија", "Old photo", "Вид", ["an old vintage photograph", "a scanned old family photo"]),
-    ("_предмет", "_object", "", ["a photo of an object", "a photo of something"]),
     ("_мутна", "_blurry", "", ["a blurry photo", "a dark underexposed photo"]),
 ]
 MK2EN = {mk: en for mk, en, _, _ in LABELS}
-MAX_TAGS = 5
+MAX_TAGS = 4
+# Општи описи: ознаката се дава само ако е посилна од „слика од нешто“ (иначе нема ознака, наместо погрешна).
+BACKGROUND = ["a photo", "a picture", "an image", "a photo of something", "a photo of an object", "a snapshot"]
+Z_MIN = 3.0          # колку ознаката мора да се издвојува од останатите (во стандардни девијации)
 
 
 def deps_ok():
@@ -179,7 +205,7 @@ class AI:
         self.state, self.message, self.progress = "off", "", 0.0
         self.lock = threading.Lock()
         self.vis = self.txt = self.tok = self.L = None
-        self.names, self.pre = [], {}
+        self.names, self.pre, self.custom, self.B = [], {}, [], None
         ok, err = deps_ok()
         if not ok:
             self.state, self.message = "missing_deps", f"Делот за препознавање не можеше да се вчита ({err[:160]}). Инсталирај ја Фотоархива повторно."
@@ -279,22 +305,50 @@ class AI:
                     break
             self.tok.enable_truncation(self.cfg["ctx"])
             self.tok.enable_padding(length=self.cfg["ctx"], pad_id=pad if pad is not None else 0)
-            sig = hashlib.sha1(json.dumps([self.model_id, [(l[0], l[3]) for l in LABELS]], ensure_ascii=False).encode()).hexdigest()[:12]
-            cache = self.dir / f"labels-{sig}.npy"
-            if cache.exists():
-                L = np.load(cache)
-            else:
-                rows = []
-                for _, _, _, prompts in LABELS:
-                    m = self.encode_text(prompts).mean(0)
-                    rows.append(m / np.linalg.norm(m))
-                L = np.stack(rows).astype(np.float32)
-                np.save(cache, L)
-            self.L = L
-            self.names = [l[0] for l in LABELS]
+            self.build_labels()
             self.state, self.message = "ready", ""
         except Exception as e:
             self.state, self.message = "error", f"Моделот не можеше да се вчита: {e}"
+
+    def build_labels(self):
+        """Векторите за сите категории: вградените + твоите („Мои категории“). Се кешираат на диск."""
+        import numpy as np
+        allx = [(l[0], l[3]) for l in LABELS] + [(n, p) for n, p in self.custom]
+        sig = hashlib.sha1(json.dumps([self.model_id, allx, BACKGROUND], ensure_ascii=False).encode()).hexdigest()[:12]
+        cache = self.dir / f"labels-{sig}.npz"
+        if cache.exists():
+            z = np.load(cache)
+            L, B = z["L"], z["B"]
+        else:
+            rows = []
+            for _, prompts in allx:
+                m = self.encode_text(prompts).mean(0)
+                rows.append(m / np.linalg.norm(m))
+            L = np.stack(rows).astype(np.float32)
+            B = self.encode_text(BACKGROUND).astype(np.float32)
+            np.savez(cache, L=L, B=B)
+            for old in self.dir.glob("labels-*"):
+                if old != cache:
+                    try:
+                        old.unlink()
+                    except OSError:
+                        pass
+        self.L, self.B = L, B
+        self.names = [a[0] for a in allx]
+
+    def set_custom(self, cats):
+        """cats: [{"name":..., "desc":...}] → и македонски и англиски описи работат со SigLIP 2."""
+        out = []
+        for c in cats or []:
+            name = str(c.get("name", "")).strip()
+            if not name:
+                continue
+            desc = str(c.get("desc", "")).strip()
+            prompts = [p for p in (desc, name, f"a photo of {desc or name}") if p]
+            out.append((name, prompts))
+        self.custom = out
+        if self.state == "ready":
+            self.build_labels()
 
     @staticmethod
     def _pick(sess, outs, kind):
@@ -353,17 +407,21 @@ class AI:
         return e / np.linalg.norm(e, axis=1, keepdims=True)
 
     def classify(self, E):
-        """За секоја слика [(ознака, оценка)]: ознаките што се блиску до најдобрата."""
+        """За секоја слика [(ознака, z-оценка)].
+        Ознака се дава само ако (1) јасно се издвојува од сите други категории (z ≥ Z_MIN)
+        и (2) е посилна од општиот опис „слика од нешто“. Ако ништо не одговара, сликата нема ознака."""
         import numpy as np
-        logits = 100.0 * (E @ self.L.T)
-        logits -= logits.max(1, keepdims=True)
-        P = np.exp(logits)
-        P /= P.sum(1, keepdims=True)
+        S = E @ self.L.T                         # сличност со секоја категорија
+        bg = (E @ self.B.T).max(1)               # сличност со општо „слика“
+        mu = S.mean(1, keepdims=True)
+        sd = S.std(1, keepdims=True) + 1e-6
+        Z = (S - mu) / sd
         out = []
-        for row in P:
-            idx = np.argsort(-row)
-            top = row[idx[0]]
-            out.append([(self.names[i], float(row[i])) for i in idx[:MAX_TAGS + 3] if row[i] >= max(0.04, 0.30 * top)])
+        for k in range(len(E)):
+            idx = np.argsort(-Z[k])[:MAX_TAGS + 2]
+            tags = [(self.names[i], round(float(Z[k, i]), 2)) for i in idx
+                    if Z[k, i] >= Z_MIN and S[k, i] >= bg[k]]
+            out.append(tags[:MAX_TAGS])
         return out
 
     def query_vector(self, q):

@@ -4,3 +4,4 @@ numpy
 onnxruntime
 tokenizers
 imageio-ffmpeg
+anthropic
