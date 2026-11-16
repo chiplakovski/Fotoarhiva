@@ -4,4 +4,3 @@ __pycache__/
 config.json
 models/
 *.log
-*.exe

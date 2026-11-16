@@ -1,6 +1,6 @@
 # Фотоархива 2.0
 
-**Симни го инсталерот:** [Releases](https://github.com/chiplakovski/fotoarhiva/releases/latest) → `Fotoarhiva-Setup-2.0.0.exe`
+**Симни го инсталерот:** [Fotoarhiva-Setup-2.0.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.0.0.exe)
 
 Апликација за Windows што ги собира сите слики од компјутерот на едно место,
 ги средува по година и месец и препознава што има на нив.
