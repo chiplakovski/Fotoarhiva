@@ -2,8 +2,11 @@
 Работи на компјутерот: на NVIDIA/AMD/Intel графичка картичка преку DirectML, или на процесорот.
 Моделот (~2,9 GB) се симнува еднаш од HuggingFace. Сликите никогаш не излегуваат од компјутерот.
 """
-import json, os, re, tempfile, threading, urllib.request
+import json, os, queue, re, subprocess, sys, tempfile, threading, urllib.request
 from pathlib import Path
+
+APP_DIR = Path(__file__).resolve().parent
+NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
 HF = os.environ.get("FOTOARHIVA_HF", "https://huggingface.co")
 REPO = "onnx-community/Qwen3-VL-4B-Instruct-ONNX"
@@ -14,11 +17,61 @@ MAX_SIDE = 768
 
 
 def deps_ok():
-    try:
-        import onnxruntime_genai  # noqa: F401
-        return True, ""
-    except Exception as e:
-        return False, str(e)
+    # Само проверка дека пакетот постои. Самиот мотор се вчитува во посебен процес,
+    # за грешка во драјверот на картичката да не ја сруши апликацијата.
+    import importlib.util
+    if importlib.util.find_spec("onnxruntime_genai") is None:
+        return False, "onnxruntime_genai"
+    return True, ""
+
+
+class ChildDied(RuntimeError):
+    pass
+
+
+class _Child:
+    """Моделот работи во посебен процес; разговараме преку JSON редови."""
+
+    def __init__(self, model_dir, device, log_path):
+        exe = sys.executable
+        if exe.lower().endswith("pythonw.exe"):
+            exe = exe[:-5] + ".exe"
+        self.log = open(log_path, "ab") if log_path else subprocess.DEVNULL
+        self.p = subprocess.Popen([exe, str(APP_DIR / "vlm.py"), "--worker", str(model_dir), device],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log, **NOWIN)
+        self.q = queue.Queue()
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def _reader(self):
+        for line in self.p.stdout:
+            if line.startswith(b"@@"):
+                self.q.put(json.loads(line[2:].decode("utf-8")))
+        self.q.put(None)  # процесот заврши
+
+    def call(self, req, timeout):
+        if self.p.poll() is not None:
+            raise ChildDied(f"процесот заврши (код {self.p.returncode})")
+        try:
+            self.p.stdin.write((json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.p.stdin.flush()
+        except OSError:
+            raise ChildDied("процесот не одговара")
+        try:
+            r = self.q.get(timeout=timeout)
+        except queue.Empty:
+            self.kill()
+            raise ChildDied("истече времето")
+        if r is None:
+            raise ChildDied(f"процесот падна (код {self.p.poll()})")
+        if not r.get("ok"):
+            raise RuntimeError(r.get("error", "грешка"))
+        return r
+
+    def kill(self):
+        try:
+            self.p.kill()
+        except Exception:
+            pass
 
 
 class LocalVLM:
@@ -30,7 +83,8 @@ class LocalVLM:
         self.state, self.message, self.progress = "off", "", 0.0
         self.device = ""
         self.enabled = False
-        self.model = self.proc = self.tok = None
+        self.child = None
+        self.log_path = os.environ.get("FOTOARHIVA_LOG", "")
         self.lock = threading.Lock()      # еден опис во исто време (графичката меморија е ограничена)
         ok, err = deps_ok()
         if not ok:
@@ -48,7 +102,9 @@ class LocalVLM:
         if not self.enabled:
             if self.state not in ("missing_deps",):
                 self.state = "off"
-            self.model = self.proc = self.tok = None
+            if self.child:
+                self.child.kill()
+                self.child = None
             return
         if self.state == "missing_deps":
             return
@@ -92,56 +148,50 @@ class LocalVLM:
         except Exception as e:
             self.state, self.message = "error", f"Симнувањето не успеа: {e}. Провери интернет и пробај повторно."
 
-    # ---------- load
+    # ---------- load (во посебен процес)
     def load(self):
-        import onnxruntime_genai as og
         self.state, self.message = "loading", ""
         errors = []
-        for dev in ("dml", "cpu"):
-            if dev == "dml" and not getattr(og, "is_dml_available", lambda: False)():
-                continue
+        bad = self.dir / "gpu_failed.txt"   # картичката веќе еднаш паднала → директно на процесорот
+        devices = ["cpu"] if bad.exists() else os.environ.get("FOTOARHIVA_VLM_DEVICES", "dml,cpu").split(",")
+        for dev in devices:
+            child = None
             try:
-                cfg = og.Config(str(self.dir))
-                cfg.clear_providers()
-                if dev == "dml":
-                    cfg.append_provider("dml")
-                model = og.Model(cfg)
-                self.model, self.proc, self.tok = model, model.create_multimodal_processor(), og.Tokenizer(model)
+                child = _Child(self.dir, dev, self.log_path)
+                r = child.call({"op": "load"}, timeout=600)
+                if r.get("skip"):
+                    child.kill()
+                    continue
+                child.call({"op": "test"}, timeout=600)
+                self.child = child
                 self.device = "графичка картичка" if dev == "dml" else "процесор (побавно)"
-                if dev == "dml":
-                    # проба: ако картичката не го поддржува моделот, се враќаме на процесорот
-                    self._run_test()
                 self.state = "ready"
                 return
             except Exception as e:
                 errors.append(f"{dev}: {e}")
-                self.model = self.proc = self.tok = None
-        self.state, self.message = "error", "Моделот не можеше да се вчита: " + " | ".join(errors)[:300]
+                if child:
+                    child.kill()
+                if dev == "dml" and isinstance(e, ChildDied):
+                    try:
+                        bad.write_text(str(e), encoding="utf-8")
+                    except OSError:
+                        pass
+        self.state, self.message = "error", "Моделот не можеше да се вклучи: " + " | ".join(errors)[:300]
 
-    def _run_test(self):
-        from PIL import Image
-        with tempfile.TemporaryDirectory() as td:
-            p = Path(td) / "t.jpg"
-            Image.new("RGB", (64, 64), (120, 160, 200)).save(p)
-            self._generate(p, "What color is this image? One word.", 5)
-
-    # ---------- inference
     def _generate(self, image_path, question, max_new):
-        import onnxruntime_genai as og
-        messages = [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": question}]}]
-        prompt = self.tok.apply_chat_template(json.dumps(messages, ensure_ascii=False), add_generation_prompt=True)
-        inputs = self.proc(prompt, images=og.Images.open(str(image_path)))
-        params = og.GeneratorParams(self.model)
-        params.set_search_options(max_length=8192, do_sample=False)
-        gen = og.Generator(self.model, params)
-        gen.set_inputs(inputs)
-        stream = self.proc.create_stream()
-        out, n = "", 0
-        while not gen.is_done() and n < max_new:
-            gen.generate_next_token()
-            out += stream.decode(gen.get_next_tokens()[0])
-            n += 1
-        return out
+        try:
+            return self.child.call({"op": "gen", "image": str(image_path), "q": question, "max": max_new}, timeout=900)["text"]
+        except ChildDied as e:
+            # процесот падна при опишување: следниот пат на процесорот
+            if self.device.startswith("графичка"):
+                try:
+                    (self.dir / "gpu_failed.txt").write_text(str(e), encoding="utf-8")
+                except OSError:
+                    pass
+            self.child = None
+            self.state, self.message = "loading", ""
+            threading.Thread(target=self.load, daemon=True).start()
+            raise
 
     def describe(self, jpeg, labels):
         """labels: [(македонски, англиски)]. Враќа ист облик како Claude: tags (мк), new_tags, caption_mk, caption_en, kind.
@@ -253,3 +303,65 @@ def map_to_categories(text, labels):
                 out.append(mk)
                 break
     return out
+
+
+# ---------- процесот што го извршува моделот
+def _worker(model_dir, device):
+    import onnxruntime_genai as og
+    out = sys.stdout.buffer
+
+    def send(obj):
+        out.write(b"@@" + json.dumps(obj, ensure_ascii=False).encode("utf-8") + b"\n")
+        out.flush()
+
+    model = proc = tok = None
+    for line in sys.stdin.buffer:
+        try:
+            req = json.loads(line.decode("utf-8"))
+            op = req.get("op")
+            if op == "load":
+                if device == "dml" and not getattr(og, "is_dml_available", lambda: False)():
+                    send({"ok": True, "skip": True})
+                    continue
+                cfg = og.Config(model_dir)
+                cfg.clear_providers()
+                if device == "dml":
+                    cfg.append_provider("dml")
+                model = og.Model(cfg)
+                proc, tok = model.create_multimodal_processor(), og.Tokenizer(model)
+                send({"ok": True})
+            elif op in ("test", "gen"):
+                if op == "test":
+                    from PIL import Image
+                    td = tempfile.mkdtemp()
+                    path = os.path.join(td, "t.jpg")
+                    Image.new("RGB", (64, 64), (120, 160, 200)).save(path)
+                    q, mx = "What color is this image? One word.", 5
+                else:
+                    path, q, mx = req["image"], req["q"], int(req.get("max", 256))
+                messages = [{"role": "user", "content": [{"type": "image"}, {"type": "text", "text": q}]}]
+                prompt = tok.apply_chat_template(json.dumps(messages, ensure_ascii=False), add_generation_prompt=True)
+                inputs = proc(prompt, images=og.Images.open(path))
+                params = og.GeneratorParams(model)
+                params.set_search_options(max_length=8192, do_sample=False)
+                gen = og.Generator(model, params)
+                gen.set_inputs(inputs)
+                stream = proc.create_stream()
+                text, n = "", 0
+                while not gen.is_done() and n < mx:
+                    gen.generate_next_token()
+                    text += stream.decode(gen.get_next_tokens()[0])
+                    n += 1
+                send({"ok": True, "text": text})
+            else:
+                send({"ok": False, "error": f"непознато: {op}"})
+        except Exception as e:
+            send({"ok": False, "error": str(e)[:500]})
+
+
+if __name__ == "__main__" and len(sys.argv) >= 4 and sys.argv[1] == "--worker":
+    if os.environ.get("FOTOARHIVA_VLM_CRASH") == sys.argv[3]:
+        os._exit(3)  # само за тестирање: симулира пад на драјверот
+    import faulthandler
+    faulthandler.enable()
+    _worker(sys.argv[2], sys.argv[3])

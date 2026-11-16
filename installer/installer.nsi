@@ -7,7 +7,7 @@ SetCompressorDictSize 64
 
 !define APPNAME "Фотоархива"
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.3.0"
+!define VERSION "2.3.1"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -16,7 +16,7 @@ InstallDir "$LOCALAPPDATA\Programs\Fotoarhiva"
 InstallDirRegKey HKCU "Software\${APPKEY}" "InstallDir"
 RequestExecutionLevel user
 BrandingText "${APPNAME} ${VERSION}"
-VIProductVersion "2.3.0.0"
+VIProductVersion "2.3.1.0"
 VIAddVersionKey /LANG=0 "ProductName" "Fotoarhiva"
 VIAddVersionKey /LANG=0 "FileDescription" "Fotoarhiva Setup"
 VIAddVersionKey /LANG=0 "FileVersion" "${VERSION}"
@@ -125,6 +125,7 @@ Section "Фотоархива" SecMain
   Delete "$SMPROGRAMS\${APPNAME}.lnk"
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run' "$INSTDIR\fotoarhiva.ico" 0 SW_SHOWNORMAL "" "${APPNAME}"
+  CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME} (безбеден режим).lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run --safe' "$INSTDIR\fotoarhiva.ico" 0 SW_SHOWNORMAL "" "${APPNAME} без препознавање"
   CreateShortcut "$SMPROGRAMS\${APPNAME}\Деинсталирај ${APPNAME}.lnk" "$INSTDIR\Uninstall.exe" "" "$INSTDIR\Uninstall.exe" 0
   ; ако беше вклучено „стартувај со Windows“, кратенката се обновува кон новата локација
   IfFileExists "$SMSTARTUP\${APPNAME}.lnk" 0 +2
@@ -151,6 +152,7 @@ Section "Uninstall"
   Delete "$DESKTOP\${APPNAME}.lnk"
   Delete "$SMPROGRAMS\${APPNAME}.lnk"
   Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"
+  Delete "$SMPROGRAMS\${APPNAME}\${APPNAME} (безбеден режим).lnk"
   Delete "$SMPROGRAMS\${APPNAME}\Деинсталирај ${APPNAME}.lnk"
   RMDir "$SMPROGRAMS\${APPNAME}"
   Delete "$SMSTARTUP\${APPNAME}.lnk"

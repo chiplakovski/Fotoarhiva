@@ -30,6 +30,14 @@ try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
+os.environ["FOTOARHIVA_LOG"] = str(LOG_PATH)
+SAFE = "--safe" in sys.argv   # безбеден режим: без модели, за апликацијата секогаш да се отвори
+try:
+    import faulthandler
+    _crash_log = open(LOG_PATH, "a", encoding="utf-8")
+    faulthandler.enable(_crash_log)  # ако нешто падне во C/C++ делот, остава трага во записникот
+except Exception:
+    pass
 
 from PIL import Image, ImageOps, ImageDraw
 Image.MAX_IMAGE_PIXELS = None
@@ -49,7 +57,7 @@ from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.3"
+VERSION = "2.3.1"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -1138,7 +1146,12 @@ class App:
             self.cfg["cloud_enabled"] = True
         self.cloud.configure(self.cfg.get("describer") == "cloud", self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
         self.vlm = LocalVLM(DATA_DIR / "models")
-        self.vlm.configure(self.cfg.get("describer") == "local")
+        self.safe = SAFE
+        if SAFE:
+            print("Безбеден режим: моделите не се вклучуваат.")
+            self.cloud.configure(False, "", None)
+        else:
+            self.vlm.configure(self.cfg.get("describer") == "local")
         self.need_reclassify = False
         sig = self.labels_sig()
         old = str(self.cfg.get("labels_sig", ""))
@@ -1185,7 +1198,8 @@ class App:
         s = dict(self.lib.status)
         s["cloud"] = self.cloud.info()
         s["vlm"] = self.vlm.info()
-        s["describer"] = self.cfg.get("describer", "off")
+        s["describer"] = "off" if self.safe else self.cfg.get("describer", "off")
+        s["safe"] = self.safe
         if self.cfg.get("describer") in ("cloud", "local"):
             n = self.lib.cloud_pending()
             s["cloud"]["pending"] = s["vlm"]["pending"] = n
@@ -1296,6 +1310,8 @@ class App:
             self.wake.clear()
 
     def ai_worker(self):
+        if self.safe:
+            return
         if self.ai.state != "missing_deps":
             if self.ai.downloaded():
                 self.ai.load()
@@ -1641,7 +1657,7 @@ def main():
             open_in_chrome(url)
         return
     app.httpd.daemon_threads = True
-    print(f"Фотоархива {VERSION} работи на {url}")
+    print(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} · Фотоархива {VERSION} работи на {url}{' (безбеден режим)' if SAFE else ''}")
     print(f"Библиотека: {app.lib.root}")
     print("Овој прозорец може да остане минимизиран. Затвори го за да ја исклучиш апликацијата.")
     threading.Thread(target=app.watcher, daemon=True).start()

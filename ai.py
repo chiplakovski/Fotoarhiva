@@ -185,11 +185,9 @@ Z_MIN = 3.0          # колку ознаката мора да се издво
 
 
 def deps_ok():
-    try:
-        import numpy, onnxruntime, tokenizers  # noqa: F401
-        return True, ""
-    except Exception as e:
-        return False, str(e)
+    import importlib.util
+    miss = [m for m in ("numpy", "onnxruntime", "tokenizers") if importlib.util.find_spec(m) is None]
+    return (not miss), ", ".join(miss)
 
 
 def labels_public():
