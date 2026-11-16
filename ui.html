@@ -1,0 +1,893 @@
+<!doctype html>
+<html lang="mk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Фотоархива</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%232B5FD9'/%3E%3Crect x='5' y='7' width='14' height='10' rx='1.5' fill='none' stroke='white' stroke-width='1.8'/%3E%3Ccircle cx='9.5' cy='11' r='1.5' fill='white'/%3E%3Cpath d='m19 15-3.5-3.5L9 18' stroke='white' stroke-width='1.8' fill='none'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#F2F3F6;--surface:#FFFFFF;--surface-2:#E8EAEF;--surface-3:#DDE0E7;
+  --fg:#161922;--fg-2:#4C5365;--fg-3:#7B8294;--line:#D6D9E1;
+  --accent:#2B5FD9;--accent-soft:#E3EAFB;--accent-fg:#FFFFFF;
+  --danger:#D3463C;--good:#2B9A66;--warn:#D6912A;
+  --shadow:0 10px 30px rgba(20,24,40,.16);
+  --font:"Segoe UI Variable Text","Segoe UI",Inter,ui-sans-serif,system-ui,-apple-system,Roboto,sans-serif;
+  --tile:168px;--r:10px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0E1014;--surface:#161920;--surface-2:#1F232C;--surface-3:#2A2F3A;
+  --fg:#ECEEF3;--fg-2:#B0B6C3;--fg-3:#7D8494;--line:#2A2F3A;
+  --accent:#7EA2F5;--accent-soft:#1D2A49;--accent-fg:#0E1014;
+  --danger:#F0705F;--good:#4CC28A;--warn:#E8AD4F;--shadow:0 12px 36px rgba(0,0,0,.55);color-scheme:dark}}
+*{box-sizing:border-box}[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.45;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:0;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3,h4{margin:0;letter-spacing:-.01em}
+.num{font-variant-numeric:tabular-nums}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-3)}
+.muted{color:var(--fg-2)}
+.btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:9px;font-weight:600;border:1px solid var(--line);background:var(--surface);white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:transparent}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--danger)}
+.btn.sm{height:30px;padding:0 10px;font-size:13px}
+.btn.ghost{border-color:transparent;background:transparent}
+.btn[disabled]{opacity:.5;cursor:default}
+.iconbtn{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--fg-2)}
+.iconbtn:hover{background:var(--surface-2);color:var(--fg)}
+.spin{width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;flex:none}
+@keyframes sp{to{transform:rotate(360deg)}}
+input[type=text],input[type=search],input[type=datetime-local],input[type=number],select{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;height:38px;padding:0 11px}
+
+/* layout */
+.app{display:grid;grid-template-columns:260px 1fr;height:100%;min-height:0}
+.rail{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;padding:16px 10px 12px 14px;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px}
+.brand .mark{width:32px;height:32px;border-radius:9px;background:var(--accent);display:grid;place-items:center;color:var(--accent-fg);flex:none}
+.brand h1{font-size:17px;font-weight:800}
+.brand small{display:block;font-size:11px;color:var(--fg-3)}
+.rail nav{display:flex;flex-direction:column;gap:2px;min-height:0;overflow:auto;flex:1;padding-right:4px}
+.sec{display:flex;align-items:center;gap:6px;padding:12px 10px 5px;width:100%;text-align:left}
+.sec .chev{margin-left:auto;color:var(--fg-3);transition:transform .15s}
+.sec[aria-expanded="false"] .chev{transform:rotate(-90deg)}
+.navbtn{display:flex;align-items:center;gap:10px;width:100%;padding:6px 10px;border-radius:8px;text-align:left;color:var(--fg-2);min-height:32px}
+.navbtn svg{flex:none;width:17px;height:17px;color:var(--fg-3)}
+.navbtn:hover{background:var(--surface-2)}
+.navbtn[aria-current="true"]{background:var(--accent-soft);color:var(--fg);font-weight:600}
+.navbtn[aria-current="true"] svg{color:var(--accent)}
+.navbtn .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.navbtn .cnt{font-size:12px;color:var(--fg-3)}
+.navbtn .sw{width:12px;height:12px;border-radius:4px;flex:none}
+.navbtn.more{color:var(--fg-3);font-size:13px}
+.storage{border-top:1px solid var(--line);padding:12px 6px 0;font-size:12px;color:var(--fg-2)}
+.storage .bar{height:6px;border-radius:4px;background:var(--surface-3);overflow:hidden;margin:7px 0 6px;display:flex}
+.storage .bar i{display:block;height:100%}
+.storage .lg{display:flex;gap:10px;flex-wrap:wrap;color:var(--fg-3);font-size:11px;margin-top:4px}
+.storage .lg b{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.main{display:flex;flex-direction:column;min-height:0;min-width:0;position:relative}
+.topbar{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.menubtn{display:none}
+.search{flex:1;display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid transparent;border-radius:9px;padding:0 12px;height:38px;min-width:0;max-width:600px}
+.search:focus-within{border-color:var(--accent);background:var(--surface)}
+.search svg{color:var(--fg-3);flex:none}
+.search input{flex:1;min-width:0;border:0;background:none;outline:none;height:36px;padding:0}
+.search input::placeholder{color:var(--fg-3)}
+.seg{display:flex;background:var(--surface-2);border-radius:8px;padding:3px;gap:2px}
+.seg button{width:32px;height:30px;border-radius:6px;display:grid;place-items:center;color:var(--fg-3)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.dropdown{position:relative}
+.menu{position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px;min-width:280px;z-index:40}
+.menu button{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;padding:9px 10px;border-radius:8px}
+.menu button:hover{background:var(--surface-2)}
+.menu button b{display:block;font-weight:600}
+.menu button small{color:var(--fg-3)}
+.menu svg{flex:none;margin-top:2px;color:var(--accent)}
+.hide-sm{display:inline}
+.content{flex:1;overflow:auto;min-height:0;padding:16px 22px 110px}
+.notices{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.notice{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px 14px;display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap}
+.notice.info{background:var(--accent-soft)}
+.notice .t{display:flex;gap:10px;align-items:center;flex:1;min-width:240px}
+.notice b{font-weight:600}
+.notice .sub{color:var(--fg-2);font-size:13px}
+.progress{height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;flex-basis:100%}
+.progress i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+.head h2{font-size:26px;font-weight:800}
+.head p{margin:4px 0 0;color:var(--fg-2)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 18px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:13px;color:var(--fg-2)}
+.chip i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.chip:hover{background:var(--surface-2)}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip small{opacity:.7}
+.group{margin-bottom:24px}
+.group-h{display:flex;align-items:baseline;gap:10px;margin-bottom:9px;position:sticky;top:-16px;background:var(--bg);padding:8px 0 6px;z-index:2}
+.group-h h3{font-size:15px;font-weight:700}
+.group-h span{font-size:12px;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.group-h button{margin-left:auto;font-size:12px;color:var(--fg-3);flex:none}
+.group-h button:hover{color:var(--fg)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(var(--tile),1fr));gap:6px}
+.tile{position:relative;aspect-ratio:1;border-radius:var(--r);overflow:hidden;background:var(--surface-2);cursor:pointer}
+.tile img{width:100%;height:100%;display:block;object-fit:cover;transition:transform .25s ease}
+.tile:hover img{transform:scale(1.03)}
+.tile .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--fg-3);font-weight:600;font-size:12px}
+.tile::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.38),transparent 35%,transparent 65%,rgba(0,0,0,.38));opacity:0;transition:opacity .15s;pointer-events:none}
+.tile:hover::after,.tile.sel::after{opacity:1}
+.tile .ck{position:absolute;top:8px;left:8px;width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,.95);background:rgba(0,0,0,.25);display:grid;place-items:center;opacity:0;transition:opacity .15s;z-index:2;color:#fff}
+.tile:hover .ck,.tile.sel .ck,.selecting .tile .ck{opacity:1}
+.tile.sel .ck{background:var(--accent);border-color:var(--accent)}
+.tile.sel{outline:3px solid var(--accent);outline-offset:-1px}
+.tile.sel img{transform:scale(.92);border-radius:6px}
+.tile .fav{position:absolute;top:7px;right:7px;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#fff;z-index:2;opacity:0;transition:opacity .15s}
+.tile:hover .fav,.tile.isfav .fav{opacity:1}
+.tile.isfav .fav svg{fill:#fff}
+.tile .meta{position:absolute;left:10px;right:10px;bottom:8px;color:#fff;font-size:11.5px;display:flex;justify-content:space-between;gap:8px;z-index:2;opacity:0;transition:opacity .15s;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+.tile .meta span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tile:hover .meta{opacity:1}
+.tile .badge{position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;padding:2px 6px;border-radius:5px;z-index:1;display:flex;align-items:center;gap:3px}
+.tile:hover .badge{opacity:0}
+.empty{border:1px dashed var(--line);border-radius:14px;padding:44px 20px;text-align:center;color:var(--fg-2)}
+.empty h3{font-size:17px;margin-bottom:6px;color:var(--fg)}
+.empty .btn{margin-top:14px}
+.sentinel{height:1px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;padding:0;display:flex;flex-direction:column}
+.card:hover{border-color:var(--fg-3)}
+.card .cov{display:grid;grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;gap:2px;aspect-ratio:16/10;background:var(--surface-2)}
+.card .cov img{width:100%;height:100%;object-fit:cover;display:block}
+.card .cov img:first-child{grid-row:span 2}
+.card .cap{padding:10px 12px 12px}
+.card .cap b{display:block;font-size:14px}
+.card .cap small{color:var(--fg-3)}
+.duplist{display:flex;flex-direction:column;gap:6px}
+.dup{display:grid;grid-template-columns:56px 1fr;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.dup img{width:56px;height:56px;object-fit:cover;border-radius:6px;background:var(--surface-2)}
+.dup .p{font-size:12px;color:var(--fg-2);overflow-wrap:anywhere}
+.dup .p b{color:var(--fg);font-weight:600}
+.selbar{position:absolute;left:50%;bottom:18px;transform:translate(-50%,140%);display:flex;align-items:center;gap:4px;background:var(--fg);color:var(--bg);padding:7px 7px 7px 16px;border-radius:14px;box-shadow:var(--shadow);transition:transform .25s ease;z-index:20;max-width:calc(100% - 32px);flex-wrap:wrap;justify-content:center}
+.selbar.on{transform:translate(-50%,0)}
+.selbar b{font-size:14px;margin-right:8px}
+.selbar .btn{background:transparent;border-color:transparent;color:inherit;height:34px}
+.selbar .btn:hover{background:rgba(128,128,128,.28)}
+.selbar .btn.danger{color:#FF9A90}
+.selbar select{background:transparent;color:inherit;border:1px solid rgba(128,128,128,.45);border-radius:8px;height:34px;padding:0 8px}
+.selbar select option{color:#161922}
+
+/* lightbox */
+.lb{position:fixed;inset:0;background:rgba(8,10,14,.95);display:grid;grid-template-columns:1fr 340px;z-index:50;color:#ECEEF3}
+.lb .stage{position:relative;display:grid;place-items:center;min-width:0;min-height:0;padding:56px 72px;overflow:hidden}
+.lb .stage img,.lb .stage video{max-width:100%;max-height:100%;border-radius:4px;box-shadow:0 20px 60px rgba(0,0,0,.6);object-fit:contain;transition:transform .2s ease;cursor:zoom-in}
+.lb .stage img.zoom{cursor:zoom-out}
+.lb .x,.lb .nav{position:absolute;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.1);display:grid;place-items:center;color:#fff;z-index:3}
+.lb .x:hover,.lb .nav:hover{background:rgba(255,255,255,.22)}
+.lb .x{top:14px;left:14px}
+.lb .nav{top:50%;transform:translateY(-50%)}
+.lb .nav.prev{left:14px}.lb .nav.next{right:14px}
+.lb .nav[disabled]{opacity:.25}
+.lb .counter{position:absolute;top:24px;left:50%;transform:translateX(-50%);font-size:12px;color:#9AA1AF}
+.info{background:#13161C;border-left:1px solid #262B35;padding:18px 18px 28px;overflow:auto;display:flex;flex-direction:column;gap:18px}
+.info h3{font-size:16px;overflow-wrap:anywhere}
+.info .eyebrow{color:#7D8494;margin-bottom:8px}
+.info .row{display:grid;grid-template-columns:92px 1fr;gap:7px 12px;font-size:13px;margin:0}
+.info .row dt{color:#7D8494}
+.info .row dd{margin:0;color:#ECEEF3;overflow-wrap:anywhere}
+.info .row dd button{color:#7EA2F5;font-size:12px;margin-left:6px}
+.info .tags{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.info .tag{font-size:12px;padding:3px 4px 3px 10px;border-radius:999px;background:#22262E;color:#C8CDD8;display:inline-flex;align-items:center;gap:2px}
+.info .tag button{width:18px;height:18px;border-radius:50%;color:#8A91A0;display:grid;place-items:center}
+.info .tag button:hover{background:#343a46;color:#fff}
+.info .tag.ai{background:#1D2A49;color:#C9D6FA}
+.info .tagin{background:#1A1D24;border:1px dashed #3A404D;border-radius:999px;height:26px;padding:0 10px;font-size:12px;color:#ECEEF3;width:120px}
+.info .acts{display:flex;gap:6px;flex-wrap:wrap}
+.info .btn{background:#22262E;border-color:#2F3440;color:#ECEEF3}
+.info .btn:hover{background:#2C313C}
+.info a{color:#7EA2F5}
+.info iframe{width:100%;height:150px;border:0;border-radius:10px;background:#171B24}
+.info .hist{width:100%;height:56px;display:block;background:#171B24;border-radius:8px;border:1px solid #262B35}
+.info .sim{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.info .sim img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:6px;cursor:pointer;background:#22262E}
+.info input[type=datetime-local]{background:#1A1D24;border-color:#2F3440;color:#ECEEF3;height:32px}
+
+/* modals */
+.modal{position:fixed;inset:0;display:grid;place-items:center;z-index:70;background:rgba(10,12,18,.5);padding:16px}
+.modal .card2{background:var(--surface);border-radius:16px;padding:22px;width:min(560px,100%);max-height:calc(100vh - 32px);overflow:auto;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:14px}
+.modal .card2.wide{width:min(720px,100%)}
+.modal h3{font-size:19px}
+.modal .foot{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
+.modal input[type=text]{width:100%}
+.flist{display:flex;flex-direction:column;gap:6px}
+.fitem{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+.fitem input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent);flex:none}
+.fitem .fp{flex:1;min-width:0}
+.fitem .fp b{display:block;font-weight:600}
+.fitem .fp small{display:block;color:var(--fg-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem .cnt{color:var(--fg-2);font-size:12px;white-space:nowrap}
+.choice{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;border:1px solid var(--line);border-radius:10px;cursor:pointer}
+.choice:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.choice input{margin-top:3px;accent-color:var(--accent)}
+.choice b{display:block}
+.choice small{color:var(--fg-2)}
+.steps{display:flex;gap:6px}
+.steps i{height:4px;flex:1;border-radius:2px;background:var(--surface-3)}
+.steps i.on{background:var(--accent)}
+.setsec{display:flex;flex-direction:column;gap:10px;padding-top:14px;border-top:1px solid var(--line)}
+.setsec:first-of-type{border-top:0;padding-top:0}
+.setsec h4{font-size:14px}
+.pathbox{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.pathbox code{flex:1;min-width:180px;background:var(--surface-2);border-radius:8px;padding:8px 10px;font-size:12.5px;overflow-wrap:anywhere}
+.browser{border:1px solid var(--line);border-radius:10px;max-height:330px;overflow:auto}
+.browser button{display:flex;width:100%;gap:8px;align-items:center;padding:8px 12px;text-align:left;border-bottom:1px solid var(--line)}
+.browser button:hover{background:var(--surface-2)}
+.browser button svg{color:var(--warn);flex:none}
+.crumbs{font-size:12.5px;color:var(--fg-2);overflow-wrap:anywhere}
+.drop{position:fixed;inset:12px;border:3px dashed var(--accent);border-radius:20px;background:color-mix(in srgb,var(--accent-soft) 85%,transparent);z-index:80;display:grid;place-items:center;pointer-events:none}
+.drop div{text-align:center;font-size:20px;font-weight:700;color:var(--fg)}
+.drop small{display:block;font-size:14px;font-weight:500;color:var(--fg-2);margin-top:6px}
+.toast{position:fixed;top:16px;left:50%;transform:translate(-50%,-220%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;box-shadow:var(--shadow);transition:transform .25s;z-index:90;max-width:calc(100% - 32px)}
+.toast.on{transform:translate(-50%,0)}
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:29;display:none}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr}
+  .rail{position:fixed;inset:0 auto 0 0;width:min(290px,86vw);z-index:30;transform:translateX(-100%);transition:transform .25s ease;box-shadow:var(--shadow)}
+  .rail.open{transform:none}.scrim.on{display:block}
+  .menubtn{display:grid}.hide-sm{display:none}.seg{display:none}
+  :root{--tile:110px}
+  .content{padding:14px 14px 110px}
+  .lb{grid-template-columns:1fr;grid-template-rows:1fr auto}
+  .lb .stage{padding:60px 12px 12px}.lb .nav{display:none}
+  .info{max-height:45vh;border-left:0;border-top:1px solid #262B35}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="rail" id="rail">
+    <div class="brand">
+      <div class="mark"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 15-4.5-4.5L8 19"/></svg></div>
+      <div><h1>Фотоархива</h1><small>Сите слики на едно место</small></div>
+    </div>
+    <nav id="nav" aria-label="Библиотека"></nav>
+    <div class="storage" id="storage"></div>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+  <section class="main">
+    <header class="topbar">
+      <button class="iconbtn menubtn" id="menubtn" aria-label="Мени"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <label class="search">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="q" type="search" placeholder="Пребарај: море, Охрид, WhatsApp, 2023, куче…" autocomplete="off">
+      </label>
+      <div class="seg" role="group" aria-label="Големина">
+        <button id="sz-s" aria-pressed="false" title="Мали"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="4" height="4" rx="1"/><rect x="10" y="3" width="4" height="4" rx="1"/><rect x="17" y="3" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="17" y="10" width="4" height="4" rx="1"/><rect x="3" y="17" width="4" height="4" rx="1"/><rect x="10" y="17" width="4" height="4" rx="1"/><rect x="17" y="17" width="4" height="4" rx="1"/></svg></button>
+        <button id="sz-m" aria-pressed="true" title="Средни"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg></button>
+        <button id="sz-l" aria-pressed="false" title="Големи"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></button>
+      </div>
+      <button class="btn" id="selmode" title="Избери повеќе слики"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg><span class="hide-sm">Избери</span></button>
+      <div class="dropdown">
+        <button class="btn primary" id="importbtn" aria-haspopup="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg><span class="hide-sm">Додај слики</span></button>
+        <div class="menu" id="importmenu" hidden>
+          <button id="m-files"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 15-4.5-4.5L8 19"/></svg><span><b>Избери слики…</b><small>Од компјутер, телефон или USB</small></span></button>
+          <button id="m-folder"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span><b>Увези цела папка…</b><small>Еднократно ги внесува сите слики од папката</small></span></button>
+          <button id="m-watch"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg><span><b>Следи папка автоматски…</b><small>Новите слики во неа сами се додаваат</small></span></button>
+        </div>
+      </div>
+      <button class="iconbtn" id="setbtn" title="Поставки" aria-label="Поставки"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg></button>
+      <input id="file-in" type="file" accept="image/*,video/*,.heic,.heif,.dng,.cr2,.nef,.arw" multiple hidden>
+      <input id="dir-in" type="file" webkitdirectory multiple hidden>
+    </header>
+    <div class="content" id="content">
+      <div class="notices" id="notices"></div>
+      <div class="head"><div><h2 id="title">Сите слики</h2><p id="subtitle"></p></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap" id="headacts">
+          <button class="btn sm" id="sortbtn">Најнови прво</button>
+          <button class="btn sm" id="renalbum" hidden>Преименувај</button>
+          <button class="btn sm danger" id="delalbum" hidden>Избриши албум</button>
+          <button class="btn sm" id="saveevent" hidden>Зачувај како албум</button>
+        </div></div>
+      <div class="chips" id="chips" role="group" aria-label="Филтер"></div>
+      <div id="groups"></div>
+    </div>
+    <div class="selbar" id="selbar" role="toolbar">
+      <b class="num" id="selcount">0 избрани</b>
+      <button class="btn" id="a-fav">♡ Омилени</button>
+      <select id="a-album" aria-label="Додај во албум"><option value="">Во албум…</option></select>
+      <button class="btn" id="a-tag">Ознака</button>
+      <button class="btn" id="a-date">Датум</button>
+      <button class="btn danger" id="a-del">Избриши</button>
+      <button class="btn" id="a-clear">Откажи</button>
+    </div>
+  </section>
+</div>
+
+<div class="lb" id="lb" hidden role="dialog" aria-modal="true" aria-label="Преглед">
+  <div class="stage" id="stage">
+    <button class="x" id="lb-x" aria-label="Затвори"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+    <div class="counter num" id="lb-counter"></div>
+    <button class="nav prev" id="lb-prev" aria-label="Претходна"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 5-7 7 7 7"/></svg></button>
+    <button class="nav next" id="lb-next" aria-label="Следна"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 5 7 7-7 7"/></svg></button>
+  </div>
+  <aside class="info" id="info"></aside>
+</div>
+
+<div class="modal" id="modal" hidden><div class="card2" id="modal-card"></div></div>
+<div class="drop" id="drop" hidden><div>Пушти ги сликите тука<small>Ќе се додадат и средат автоматски</small></div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+// ===================================================================== helpers
+const MONTHS=['Јануари','Февруари','Март','Април','Мај','Јуни','Јули','Август','Септември','Октомври','Ноември','Декември'];
+const KINDS={photo:'Фотографии',screenshot:'Скриншоти',video:'Видеа'};
+const PAL=['#2B5FD9','#3F9A5E','#E0813B','#D86FA3','#C9A23A','#5B6CC9','#2A9FD0','#D3463C','#7A5BC9','#2E9C93'];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(url,body){
+  const r=await fetch(url,body!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||('Грешка '+r.status));
+  return j;
+}
+const colorOf=s=>{let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))>>>0;return PAL[h%PAL.length]};
+const fmtSize=b=>!b?'0 KB':b>=1e9?(b/1e9).toFixed(1).replace('.',',')+' GB':b>=1e6?(b/1e6).toFixed(1).replace('.',',')+' MB':Math.max(1,Math.round(b/1e3))+' KB';
+const fmtDate=d=>`${d.getDate()}. ${MONTHS[d.getMonth()].toLowerCase()} ${d.getFullYear()}, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+const fmtDay=d=>`${d.getDate()}. ${MONTHS[d.getMonth()].toLowerCase()} ${d.getFullYear()}`;
+const plural=(n,one,many)=>`${n} ${n===1?one:many}`;
+const store={get(k,d){try{const v=localStorage.getItem('fa.'+k);return v==null?d:JSON.parse(v)}catch(_){return d}},set(k,v){try{localStorage.setItem('fa.'+k,JSON.stringify(v))}catch(_){}}};
+let tt;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2800)}
+const I={
+  all:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 15-4.5-4.5L8 19"/></svg>',
+  recent:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  fav:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg>',
+  video:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3z"/></svg>',
+  screen:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg>',
+  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
+  star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
+  dup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  src:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 6h16v10H8l-4 4z"/></svg>',
+  chev:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
+  folder:'<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+};
+
+// ===================================================================== state
+let data={photos:[],albums:[]},cfg={},status={},events=[],byId=new Map();
+const state={view:'all',key:null,chip:null,q:'',sortDesc:true,selecting:false,sel:new Set(),lb:null,version:-1,more:store.get('more',{}),closed:store.get('closed',{})};
+let lastLoad=0;
+
+async function load(){
+  lastLoad=Date.now();
+  data=await api('/api/library');
+  byId=new Map();
+  for(const p of data.photos){p.d=new Date(p.taken);p.year=p.d.getFullYear();byId.set(p.id,p)}
+  buildEvents();
+  state.version=status.version;
+  render();
+}
+function buildEvents(){
+  const ps=data.photos.filter(p=>!p.trash&&p.kind!=='screenshot').sort((a,b)=>a.d-b.d);
+  const out=[];let cur=null;
+  for(const p of ps){
+    const gap=cur?p.d-cur.last:Infinity;
+    const samePlace=cur&&p.place&&cur.place===p.place;
+    if(!cur||gap>(samePlace?48:6)*3600e3){cur={ids:[],first:p.d,last:p.d,place:null};out.push(cur)}
+    cur.ids.push(p.id);cur.last=p.d;if(p.place)cur.place=p.place;
+  }
+  events=out.filter(e=>e.ids.length>=5).map(e=>{
+    const cnt={};for(const id of e.ids){const pl=byId.get(id).place;if(pl)cnt[pl]=(cnt[pl]||0)+1}
+    const places=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+    const tc={};for(const id of e.ids)for(const t of byId.get(id).tags||[])tc[t]=(tc[t]||0)+1;
+    const topTag=Object.entries(tc).sort((a,b)=>b[1]-a[1])[0];
+    const sameDay=e.first.toDateString()===e.last.toDateString();
+    const range=sameDay?fmtDay(e.first):(e.first.getMonth()===e.last.getMonth()&&e.first.getFullYear()===e.last.getFullYear()?`${e.first.getDate()}–${e.last.getDate()}. ${MONTHS[e.last.getMonth()].toLowerCase()} ${e.last.getFullYear()}`:`${fmtDay(e.first)} – ${fmtDay(e.last)}`);
+    const title=places.length?places.slice(0,2).join(', '):(topTag&&topTag[1]>=e.ids.length/3?topTag[0]:(sameDay?'Ден '+fmtDay(e.first):'Настан'));
+    return {id:e.ids[0],ids:e.ids,title,range,first:e.first,count:e.ids.length};
+  }).reverse();
+}
+
+// ===================================================================== filtering
+const searchText=p=>(p._s||(p._s=[p.name,p.place,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
+function baseList(){
+  const now=Date.now(),v=state.view,k=state.key;
+  let ev=v==='event'?new Set((events.find(e=>e.id===k)||{ids:[]}).ids):null;
+  return data.photos.filter(p=>{
+    if(v==='trash')return p.trash; if(p.trash)return false;
+    switch(v){
+      case 'fav':return !!p.fav;
+      case 'recent':return now-p.d<=30*864e5;
+      case 'kind':return p.kind===k;
+      case 'photos':return p.kind==='photo';
+      case 'year':return p.year===k;
+      case 'album':return p.albums.includes(k);
+      case 'tag':return (p.tags||[]).includes(k);
+      case 'place':return p.place===k;
+      case 'app':return p.app===k;
+      case 'event':return ev.has(p.id);
+    }
+    return true;
+  });
+}
+function visible(){
+  let list=baseList();
+  if(state.chip){const [t,val]=state.chip;list=list.filter(p=>t==='tag'?(p.tags||[]).includes(val):t==='kind'?p.kind===val:p.place===val)}
+  if(state.q){const words=state.q.toLowerCase().split(/\s+/).filter(Boolean);list=list.filter(p=>{const s=searchText(p);return words.every(w=>s.includes(w))})}
+  return list.sort((a,b)=>state.sortDesc?b.d-a.d:a.d-b.d);
+}
+
+// ===================================================================== sidebar
+function navBtn(view,key,icon,label,cnt){
+  const cur=state.view===view&&(key==null||state.key===key);
+  return `<button class="navbtn" data-view="${view}" data-key="${esc(key??'')}" aria-current="${cur}" title="${esc(label)}">${icon}<span class="lbl">${esc(label)}</span>${cnt!=null?`<span class="cnt num">${cnt}</span>`:''}</button>`;
+}
+function section(id,label,items,limit=6,extra=''){
+  if(!items.length&&!extra)return '';
+  const closed=state.closed[id],more=state.more[id];
+  let h=`<button class="sec eyebrow" data-sec="${id}" aria-expanded="${!closed}">${label}<span class="chev">${I.chev}</span></button>`;
+  if(closed)return h;
+  const show=more?items:items.slice(0,limit);
+  h+=show.join('');
+  if(items.length>limit)h+=`<button class="navbtn more" data-more="${id}"><span class="lbl">${more?'Помалку':'+ уште '+(items.length-limit)}</span></button>`;
+  return h+extra;
+}
+function counts(arr,fn){const m=new Map();for(const p of arr){const v=fn(p);if(Array.isArray(v))v.forEach(x=>m.set(x,(m.get(x)||0)+1));else if(v!=null&&v!=='')m.set(v,(m.get(v)||0)+1)}return [...m.entries()].sort((a,b)=>b[1]-a[1])}
+function renderNav(){
+  const live=data.photos.filter(p=>!p.trash),now=Date.now();
+  let h=navBtn('all',null,I.all,'Сите слики',live.length)+navBtn('recent',null,I.recent,'Неодамнешни',live.filter(p=>now-p.d<=30*864e5).length)+navBtn('fav',null,I.fav,'Омилени',live.filter(p=>p.fav).length);
+  const nv=live.filter(p=>p.kind==='video').length,ns=live.filter(p=>p.kind==='screenshot').length;
+  if(nv)h+=navBtn('kind','video',I.video,'Видеа',nv);
+  if(ns)h+=navBtn('kind','screenshot',I.screen,'Скриншоти',ns);
+  h+=section('albums','Албуми',data.albums.map(a=>navBtn('album',a.id,`<span class="sw" style="background:${esc(a.color)}"></span>`,a.name,live.filter(p=>p.albums.includes(a.id)).length)),8,`<button class="navbtn" id="newalbum">${I.plus}<span class="lbl">Нов албум</span></button>`);
+  h+=section('events','Настани',events.map(e=>navBtn('event',e.id,I.star,`${e.title} · ${e.range}`,e.count)),5,events.length>5?navBtn('events',null,I.star,'Сите настани',events.length):'');
+  h+=section('places','Места',counts(live,p=>p.place).map(([k,n])=>navBtn('place',k,I.pin,k,n)),6);
+  h+=section('tags','Што има на сликите',counts(live,p=>p.tags).map(([k,n])=>navBtn('tag',k,`<span class="sw" style="background:${colorOf(k)};border-radius:50%"></span>`,k,n)),8);
+  h+=section('apps','Извор',counts(live,p=>p.app).map(([k,n])=>navBtn('app',k,I.src,k,n)),8);
+  h+=section('years','Години',counts(live,p=>p.year).sort((a,b)=>b[0]-a[0]).map(([k,n])=>navBtn('year',k,I.cal,String(k),n)),6);
+  h+=section('other','Друго',[navBtn('trash',null,I.trash,'Корпа',data.photos.filter(p=>p.trash).length),navBtn('dups',null,I.dup,'Дупликати',data.duplicates||0)],5);
+  $('nav').innerHTML=h;
+  $('nav').querySelectorAll('.navbtn[data-view]').forEach(b=>b.onclick=()=>{let k=b.dataset.key||null;const v=b.dataset.view;if(['year','album','event'].includes(v))k=+k;go(v,k)});
+  $('nav').querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>{state.closed[b.dataset.sec]=!state.closed[b.dataset.sec];store.set('closed',state.closed);renderNav()});
+  $('nav').querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{state.more[b.dataset.more]=!state.more[b.dataset.more];store.set('more',state.more);renderNav()});
+  const na=$('newalbum');if(na)na.onclick=()=>newAlbum();
+  // storage
+  const sp=live.filter(p=>p.kind!=='video').reduce((s,p)=>s+p.size,0),sv=live.filter(p=>p.kind==='video').reduce((s,p)=>s+p.size,0),tot=data.disk_total||1;
+  $('storage').innerHTML=`<div class="eyebrow">Библиотека</div><div class="bar"><i style="width:${Math.max(.5,sp/tot*100)}%;background:var(--accent)"></i><i style="width:${sv/tot*100}%;background:var(--warn)"></i></div>
+    <div class="num"><b>${fmtSize(sp+sv)}</b> · ${plural(live.length,'датотека','датотеки')}</div>
+    <div class="lg"><span><b style="background:var(--accent)"></b>Слики ${fmtSize(sp)}</span><span><b style="background:var(--warn)"></b>Видеа ${fmtSize(sv)}</span></div>
+    <button class="btn sm" id="openlib" style="margin-top:9px;width:100%;justify-content:center">Отвори ја папката</button>`;
+  $('openlib').onclick=()=>api('/api/open-library',{});
+}
+function go(view,key=null){state.view=view;state.key=key;state.chip=null;closeRail();$('content').scrollTop=0;render()}
+
+// ===================================================================== notices (scan / AI / upload)
+let upload=null;
+function renderNotices(){
+  const s=status,n=[];
+  if(cfg.configured&&!(cfg.sources||[]).length&&!data.photos.length)
+    n.push(`<div class="notice info"><div class="t"><div><b>Нема избрани папки.</b><div class="sub">Додај папка со слики или пушти слики во прозорецот.</div></div></div><button class="btn sm primary" data-act="addwatch">Додај папка</button></div>`);
+  if(upload)n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Додавам слики…</b><div class="sub num">${upload.done} од ${upload.total} · нови ${upload.added} · веќе постоеја ${upload.dup}${upload.err?` · неуспешни ${upload.err}`:''}</div></div></div><div class="progress"><i style="width:${upload.total?Math.round(upload.done/upload.total*100):0}%"></i></div></div>`);
+  if(s.state==='scanning')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Ги барам и средувам сликите…</b><div class="sub num">${s.total?`${s.scanned} од ${s.total} датотеки`:'Ги пребарувам папките'} · нови ${s.added} · дупликати ${s.duplicates}${s.skipped?` · ${s.skipped} чекаат (се копираат)`:''}</div></div></div><div class="progress"><i style="width:${s.total?Math.round(s.scanned/s.total*100):3}%"></i></div></div>`);
+  const ai=s.ai||{};
+  if(ai.state==='not_downloaded'&&data.photos.length)n.push(`<div class="notice info"><div class="t"><div><b>Вклучи паметно препознавање</b><div class="sub">Сликите ќе се групираат по содржина: море, планини, луѓе, храна, кучиња, документи… Еднократно симнување од околу 155 MB. Сè работи на твојот компјутер, сликите не се праќаат никаде.</div></div></div><button class="btn sm primary" data-act="ai">Вклучи</button></div>`);
+  if(ai.state==='downloading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го симнувам моделот за препознавање…</b><div class="sub num">${Math.round(ai.progress*100)}% · ова се прави само еднаш</div></div></div><div class="progress"><i style="width:${Math.round(ai.progress*100)}%"></i></div></div>`);
+  if(ai.state==='loading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го подготвувам препознавањето…</b><div class="sub">Првиот пат трае околу една минута.</div></div></div></div>`);
+  if(ai.state==='ready'&&s.ai_pending>0&&s.state!=='scanning'){const tot=s.ai_pending+s.ai_done;n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Препознавам што има на сликите…</b><div class="sub num">Уште ${s.ai_pending} ${s.ai_pending===1?'слика':'слики'}. Може слободно да ја користиш апликацијата.</div></div></div><div class="progress"><i style="width:${tot?Math.round(s.ai_done/tot*100):0}%"></i></div></div>`)}
+  if(ai.state==='error')n.push(`<div class="notice"><div class="t"><div><b>Препознавањето не работи.</b><div class="sub">${esc(ai.message)}</div></div></div><button class="btn sm" data-act="ai">Пробај повторно</button></div>`);
+  if(ai.state==='missing_deps'&&data.photos.length&&!store.get('hideDeps',false))n.push(`<div class="notice"><div class="t"><div><b>Препознавањето не е инсталирано.</b><div class="sub">${esc(ai.message)}</div></div></div><button class="btn sm ghost" data-act="hidedeps">Сокриј</button></div>`);
+  $('notices').innerHTML=n.join('');
+  $('notices').querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{const a=b.dataset.act;
+    if(a==='ai'){await api('/api/ai/enable',{});toast('Почнува симнувањето на моделот');refreshStatus()}
+    if(a==='addwatch')addWatchFolder();
+    if(a==='hidedeps'){store.set('hideDeps',true);renderNotices()}});
+}
+
+// ===================================================================== main render
+const TITLES={all:'Сите слики',recent:'Неодамнешни',fav:'Омилени',trash:'Корпа',dups:'Дупликати',events:'Настани',photos:'Фотографии'};
+function render(){
+  renderNav();renderNotices();
+  const v=state.view;
+  $('renalbum').hidden=$('delalbum').hidden=v!=='album';
+  $('saveevent').hidden=v!=='event';
+  $('sortbtn').hidden=v==='dups'||v==='events';
+  if(v==='dups')return renderDups();
+  if(v==='events')return renderEvents();
+  const list=visible();
+  let title=TITLES[v]||String(state.key),sub='';
+  if(v==='album')title=(data.albums.find(a=>a.id===state.key)||{}).name||'Албум';
+  if(v==='kind')title=KINDS[state.key];
+  if(v==='event'){const e=events.find(x=>x.id===state.key);title=e?e.title:'Настан';sub=e?e.range+' · ':''}
+  if(v==='app')sub='Извор · ';
+  if(v==='tag')sub='Препознаено · ';
+  if(state.q&&v==='all')title='Резултати';
+  $('title').textContent=title;
+  const sz=list.reduce((s,p)=>s+p.size,0);
+  $('subtitle').textContent=v==='trash'?`${plural(list.length,'ставка','ставки')} · во папката „Корпа“ додека не ги избришеш трајно`:`${sub}${plural(list.length,'датотека','датотеки')} · ${fmtSize(sz)}${state.q?` · пребарување „${state.q}“`:''}`;
+  $('sortbtn').textContent=state.sortDesc?'Најнови прво':'Најстари прво';
+  renderChips();
+  const wrap=$('groups');wrap.innerHTML='';
+  if(!list.length){
+    const emptyAll=!data.photos.length;
+    wrap.innerHTML=`<div class="empty"><h3>${v==='trash'?'Корпата е празна':emptyAll?'Сè уште нема слики':'Нема слики овде'}</h3><p>${state.q?'Пробај друг збор за пребарување.':emptyAll?(status.state==='scanning'?'Ги барам сликите на компјутерот, ќе се појават наскоро.':'Додај слики од компјутер или избери папки што да се следат.'):''}</p>${emptyAll&&status.state!=='scanning'?'<button class="btn primary" id="emptyadd">Додај слики</button>':''}</div>`;
+    const ea=$('emptyadd');if(ea)ea.onclick=()=>$('file-in').click();
+    syncSel();return;
+  }
+  const groups=new Map();
+  for(const p of list){const k=`${p.year}-${p.d.getMonth()}`;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p)}
+  const queue=[...groups.values()];let pending=null;
+  const sentinel=document.createElement('div');sentinel.className='sentinel';wrap.appendChild(sentinel);
+  const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))drawMore()},{root:$('content'),rootMargin:'800px'});
+  function drawMore(){
+    let drawn=0;
+    while((queue.length||pending)&&drawn<240){
+      const arr=pending||queue.shift();pending=null;
+      const d=arr[0].d,key=`${arr[0].year}-${d.getMonth()}`;
+      let g=wrap.querySelector(`[data-g="${key}"]`);
+      if(!g){
+        const all=groups.get(key);
+        const pl=counts(all,p=>p.place).slice(0,3).map(x=>x[0]).join(', ');
+        g=document.createElement('section');g.className='group';g.dataset.g=key;
+        g.innerHTML=`<div class="group-h"><h3>${MONTHS[d.getMonth()]} ${d.getFullYear()}</h3><span class="num">${all.length}${pl?' · '+esc(pl):''}</span><button data-sel-group>Избери ги сите</button></div><div class="grid"></div>`;
+        g.querySelector('[data-sel-group]').onclick=()=>{state.selecting=true;all.forEach(p=>state.sel.add(p.id));syncSel()};
+        wrap.insertBefore(g,sentinel);
+      }
+      const grid=g.querySelector('.grid'),take=Math.min(arr.length,240-drawn);
+      const frag=document.createDocumentFragment();for(const p of arr.slice(0,take))frag.appendChild(tile(p,list));grid.appendChild(frag);
+      drawn+=take;if(take<arr.length)pending=arr.slice(take);
+    }
+    syncSel();
+    if(!queue.length&&!pending){io.disconnect();sentinel.remove()}
+  }
+  drawMore();if(sentinel.isConnected)io.observe(sentinel);
+}
+function renderChips(){
+  const base=baseList(),chips=[];
+  if(!['tag','kind'].includes(state.view)){
+    for(const [t,n] of counts(base,p=>p.tags).slice(0,10))chips.push(['tag',t,n]);
+  }
+  if(!['kind'].includes(state.view)){
+    for(const k of ['video','screenshot']){const n=base.filter(p=>p.kind===k).length;if(n&&n<base.length)chips.push(['kind',k,n])}
+  }
+  if(!['place'].includes(state.view)){for(const [t,n] of counts(base,p=>p.place).slice(0,4))if(n<base.length)chips.push(['place',t,n])}
+  if(chips.length<2&&!state.chip){$('chips').innerHTML='';return}
+  $('chips').innerHTML=chips.map(([t,v,n])=>{const on=state.chip&&state.chip[0]===t&&state.chip[1]===v;const dot=t==='tag'?colorOf(v):t==='place'?'#2A9FD0':'#8A93A6';return `<button class="chip" data-t="${t}" data-v="${esc(v)}" aria-pressed="${!!on}"><i style="background:${dot}"></i>${esc(t==='kind'?KINDS[v]:v)} <small class="num">${n}</small></button>`}).join('');
+  $('chips').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const c=[b.dataset.t,b.dataset.v];state.chip=state.chip&&state.chip[0]===c[0]&&state.chip[1]===c[1]?null:c;render()});
+}
+function tile(p,list){
+  const el=document.createElement('div');el.className='tile'+(p.fav?' isfav':'');el.dataset.id=p.id;el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-label',p.name);
+  const ext=esc(p.name.split('.').pop().toUpperCase());
+  el.innerHTML=`<img src="/thumb/${p.id}.jpg?r=${p.rot||0}" loading="lazy" decoding="async" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'${ext}'}))">
+    <button class="ck" aria-label="Избери" data-ck><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg></button>
+    <button class="fav" aria-label="Омилена" data-fav><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg></button>
+    <div class="meta"><span>${esc(p.place||(p.tags||[])[0]||p.name)}</span><span class="num">${p.d.getDate()}.${p.d.getMonth()+1}.</span></div>
+    ${p.kind==='video'?'<span class="badge">▶ ВИДЕО</span>':p.kind==='screenshot'?'<span class="badge">СКРИНШОТ</span>':''}`;
+  el.onclick=async e=>{
+    if(e.target.closest('[data-fav]')){e.stopPropagation();p.fav=p.fav?0:1;el.classList.toggle('isfav',!!p.fav);await api(`/api/photo/${p.id}`,{fav:!!p.fav});state.version++;renderNav();return}
+    if(e.target.closest('[data-ck]')||state.selecting||e.shiftKey||e.ctrlKey||e.metaKey){toggleSel(p.id,e.shiftKey,list);return}
+    openLb(p,list);
+  };
+  el.onkeydown=e=>{if(e.key==='Enter')openLb(p,list);if(e.key===' '){e.preventDefault();toggleSel(p.id)}};
+  return el;
+}
+function renderEvents(){
+  $('title').textContent='Настани';$('chips').innerHTML='';
+  $('subtitle').textContent=`${plural(events.length,'настан','настани')}, автоматски групирани по време и место`;
+  const wrap=$('groups');
+  if(!events.length){wrap.innerHTML='<div class="empty"><h3>Сè уште нема настани</h3><p>Настан е група од барем 5 слики снимени во ист период, на пример патување или прослава.</p></div>';return}
+  wrap.innerHTML=`<div class="cards">${events.map(e=>`<button class="card" data-e="${e.id}"><div class="cov">${e.ids.slice(0,3).map(id=>`<img src="/thumb/${id}.jpg" loading="lazy" alt="">`).join('')}</div><div class="cap"><b>${esc(e.title)}</b><small class="num">${esc(e.range)} · ${plural(e.count,'слика','слики')}</small></div></button>`).join('')}</div>`;
+  wrap.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>go('event',+b.dataset.e));
+}
+async function renderDups(){
+  $('title').textContent='Дупликати';$('chips').innerHTML='';
+  const rows=await api('/api/duplicates');
+  $('subtitle').textContent=`${plural(rows.length,'датотека е прескокната','датотеки се прескокнати')}, бидејќи истата слика веќе е во библиотеката. Оригиналите не се допрени.`;
+  $('groups').innerHTML=rows.length?`<div class="duplist">${rows.map(r=>`<div class="dup"><img src="/thumb/${r.of_id}.jpg" alt="" onerror="this.style.visibility='hidden'"><div class="p"><b>${esc(r.src)}</b><br>иста како: ${esc(r.of_path||'(избришана)')}</div></div>`).join('')}</div>`:'<div class="empty"><h3>Нема дупликати</h3><p>Секоја датотека во библиотеката е единствена.</p></div>';
+}
+
+// ===================================================================== selection
+let lastClicked=null;
+function toggleSel(id,shift,list){
+  if(shift&&lastClicked!=null&&list){const a=list.findIndex(p=>p.id===lastClicked),b=list.findIndex(p=>p.id===id);if(a>=0&&b>=0){const [x,y]=a<b?[a,b]:[b,a];for(let i=x;i<=y;i++)state.sel.add(list[i].id)}}
+  else state.sel.has(id)?state.sel.delete(id):state.sel.add(id);
+  lastClicked=id;if(state.sel.size)state.selecting=true;syncSel();
+}
+function syncSel(){
+  document.querySelectorAll('.tile').forEach(t=>t.classList.toggle('sel',state.sel.has(+t.dataset.id)));
+  $('app').classList.toggle('selecting',state.selecting);$('selmode').classList.toggle('primary',state.selecting);
+  const n=state.sel.size;$('selcount').textContent=n===1?'1 избрана':`${n} избрани`;$('selbar').classList.toggle('on',n>0);
+  const tr=state.view==='trash';
+  $('a-fav').textContent=tr?'Врати':'♡ Омилени';$('a-del').textContent=tr?'Избриши трајно':'Избриши';
+  $('a-tag').hidden=$('a-date').hidden=$('a-album').hidden=tr;
+  $('a-album').innerHTML='<option value="">Во албум…</option>'+data.albums.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')+'<option value="new">+ Нов албум…</option>'+(state.view==='album'?'<option value="remove">Тргни од овој албум</option>':'');
+}
+function clearSel(){state.sel.clear();state.selecting=false;syncSel()}
+$('selmode').onclick=()=>{state.selecting=!state.selecting;if(!state.selecting)state.sel.clear();syncSel()};
+$('a-clear').onclick=clearSel;
+$('a-fav').onclick=async()=>{const ids=[...state.sel];
+  if(state.view==='trash'){await api('/api/photos/update',{ids,trash:false});toast(`Вратени ${ids.length}`)}
+  else{const all=ids.every(id=>byId.get(id).fav);await api('/api/photos/update',{ids,fav:!all});toast(all?'Тргнати од омилени':`Додадени ${ids.length} во омилени`)}
+  clearSel();await load()};
+$('a-del').onclick=async()=>{const ids=[...state.sel];
+  if(state.view==='trash'){if(!await confirmBox(`Трајно да се избришат ${plural(ids.length,'датотека','датотеки')} од дискот?`,'Избриши трајно'))return;await api('/api/photos/delete',{ids});toast('Трајно избришани')}
+  else{await api('/api/photos/update',{ids,trash:true});toast(`${ids.length} преместени во Корпа`)}
+  clearSel();await load()};
+$('a-album').onchange=async e=>{const v=e.target.value;e.target.value='';if(!v)return;const ids=[...state.sel];
+  if(v==='remove'){await api(`/api/albums/${state.key}/remove`,{ids});toast('Тргнати од албумот')}
+  else if(v==='new'){const name=await promptBox('Нов албум','Име на албумот');if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await api(`/api/albums/${r.id}/add`,{ids});toast(`Албумот „${name}“ е создаден`)}
+  else{await api(`/api/albums/${v}/add`,{ids});toast(`Додадени во „${data.albums.find(a=>a.id==v).name}“`)}
+  clearSel();await load()};
+$('a-tag').onclick=async()=>{const t=await promptBox('Додај ознака','пр. Одмор, Баба, Работа',allTags());if(!t)return;await api('/api/photos/update',{ids:[...state.sel],add_tag:t});toast(`Ознаката „${t}“ е додадена`);clearSel();await load()};
+$('a-date').onclick=async()=>{const first=byId.get([...state.sel][0]);const v=await dateBox(first.d);if(!v)return;await api('/api/photos/update',{ids:[...state.sel],taken:v});toast('Датумот е сменет и сликите се преместени');clearSel();await load()};
+const allTags=()=>counts(data.photos,p=>p.tags).map(x=>x[0]);
+
+// ===================================================================== lightbox
+function openLb(p,list){state.lb={list,idx:list.indexOf(p)};$('lb').hidden=false;showLb();$('lb-x').focus()}
+function showLb(){
+  const {list,idx}=state.lb,p=list[idx],stage=$('stage');
+  stage.querySelectorAll('img,video').forEach(n=>n.remove());
+  let node;
+  if(p.kind==='video'){node=document.createElement('video');node.src=`/file/${p.id}`;node.controls=true;node.autoplay=true;node.style.cursor='default'}
+  else{node=new Image();node.src=`/file/${p.id}`;node.alt=p.name;node.onerror=()=>{node.src=`/thumb/${p.id}.jpg`}}
+  const r=p.rot||0;if(r){node.style.transform=`rotate(${r}deg)`;if(r%180){node.style.maxWidth='calc(100vh - 112px)';node.style.maxHeight='calc(100vw - 500px)'}}
+  if(p.kind!=='video')node.onclick=e=>{const z=node.classList.toggle('zoom');const b=node.getBoundingClientRect();node.style.transformOrigin=`${(e.clientX-b.left)/b.width*100}% ${(e.clientY-b.top)/b.height*100}%`;node.style.transform=`${r?`rotate(${r}deg) `:''}${z?'scale(2.2)':''}`};
+  stage.appendChild(node);
+  $('lb-counter').textContent=`${idx+1} / ${list.length}`;$('lb-prev').disabled=idx===0;$('lb-next').disabled=idx===list.length-1;
+  const albums=p.albums.map(a=>data.albums.find(x=>x.id===a)).filter(Boolean);
+  const loc=p.lat!=null?`https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lon}#map=14/${p.lat}/${p.lon}`:'';
+  const pad=.01;
+  $('info').innerHTML=`<div><div class="eyebrow">${esc(KINDS[p.kind])}${p.app?' · '+esc(p.app):''}</div><h3>${esc(p.name)}</h3></div>
+    <div class="acts">
+      <button class="btn sm" id="lb-fav">${p.fav?'♥ Омилена':'♡ Омилени'}</button>
+      ${p.kind!=='video'?'<button class="btn sm" id="lb-rot" title="Ротирај">↻ Ротирај</button>':''}
+      <button class="btn sm" id="lb-open">Отвори</button>
+      <button class="btn sm" id="lb-reveal">Во папка</button>
+      <button class="btn sm" id="lb-del" style="color:#FF9A90">${p.trash?'Врати':'Избриши'}</button>
+    </div>
+    <dl class="row">
+      <dt>Датум</dt><dd class="num" id="lb-date">${fmtDate(p.d)}<button id="lb-editdate">измени</button></dd>
+      <dt>Место</dt><dd>${p.place?esc(p.place)+(p.country?', '+esc(p.country):''):p.lat!=null?'GPS без познато место':'—'}</dd>
+      <dt>Извор</dt><dd>${esc(p.app||'—')}</dd>
+      <dt>Камера</dt><dd>${esc(p.cam||'—')}</dd>
+      <dt>Димензии</dt><dd class="num">${p.w?((p.rot||0)%180?`${p.h} × ${p.w}`:`${p.w} × ${p.h}`):'—'}</dd>
+      <dt>Големина</dt><dd class="num">${fmtSize(p.size)}</dd>
+      <dt>Папка</dt><dd>${esc(p.path.split('/').slice(0,-1).join(' › '))}</dd>
+    </dl>
+    <div><div class="eyebrow">Ознаки</div><div class="tags" id="lb-tags">${(p.tags||[]).map(t=>`<span class="tag ${p.ai_done===1?'ai':''}">${esc(t)}<button data-rm="${esc(t)}" title="Тргни ја ознаката">×</button></span>`).join('')}<input class="tagin" id="lb-tagin" placeholder="+ ознака" list="taglist"><datalist id="taglist">${allTags().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div></div>
+    <div><div class="eyebrow">Албуми</div><div class="tags">${albums.map(a=>`<span class="tag">${esc(a.name)}<button data-ral="${a.id}" title="Тргни од албумот">×</button></span>`).join('')}<select id="lb-album" class="tagin" style="width:auto"><option value="">+ во албум</option>${data.albums.filter(a=>!p.albums.includes(a.id)).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div></div>
+    ${p.kind!=='video'?'<div><div class="eyebrow">Хистограм</div><canvas class="hist" id="lb-hist" width="300" height="56"></canvas></div>':''}
+    ${p.lat!=null?`<div><div class="eyebrow">Мапа</div><iframe loading="lazy" title="Мапа" src="https://www.openstreetmap.org/export/embed.html?bbox=${p.lon-pad},${p.lat-pad},${p.lon+pad},${p.lat+pad}&layer=mapnik&marker=${p.lat},${p.lon}"></iframe><a href="${loc}" target="_blank" rel="noopener" style="font-size:12px">Отвори поголема мапа</a></div>`:''}
+    <div id="lb-simwrap" hidden><div class="eyebrow">Слични слики</div><div class="sim" id="lb-sim"></div></div>`;
+  $('lb-fav').onclick=async()=>{p.fav=p.fav?0:1;await api(`/api/photo/${p.id}`,{fav:!!p.fav});showLb()};
+  const rot=$('lb-rot');if(rot)rot.onclick=async()=>{await api(`/api/photo/${p.id}`,{rotate:90});p.rot=((p.rot||0)+90)%360;showLb();dirty=true};
+  $('lb-open').onclick=()=>api(`/api/open/${p.id}`,{});
+  $('lb-reveal').onclick=()=>api(`/api/reveal/${p.id}`,{});
+  $('lb-del').onclick=async()=>{await api(`/api/photo/${p.id}`,{trash:!p.trash});toast(p.trash?'Сликата е вратена':'Преместена во Корпа');list.splice(idx,1);dirty=true;if(!list.length)return closeLb();state.lb.idx=Math.min(idx,list.length-1);showLb()};
+  $('lb-editdate').onclick=async()=>{const v=await dateBox(p.d);if(!v)return;await api(`/api/photo/${p.id}`,{taken:v});p.d=new Date(v);p.year=p.d.getFullYear();dirty=true;showLb();toast('Датумот е сменет')};
+  $('info').querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{const t=b.dataset.rm;await api(`/api/photo/${p.id}`,{remove_tag:t});p.tags=p.tags.filter(x=>x!==t);p._s=null;dirty=true;showLb()});
+  $('info').querySelectorAll('[data-ral]').forEach(b=>b.onclick=async()=>{const a=+b.dataset.ral;await api(`/api/albums/${a}/remove`,{ids:[p.id]});p.albums=p.albums.filter(x=>x!==a);dirty=true;showLb()});
+  $('lb-tagin').onkeydown=async e=>{if(e.key==='Enter'){const t=e.target.value.trim();if(!t)return;await api(`/api/photo/${p.id}`,{add_tag:t});p.tags=[...(p.tags||[]).filter(x=>x!==t),t];p._s=null;dirty=true;showLb();setTimeout(()=>$('lb-tagin')&&$('lb-tagin').focus(),0)}e.stopPropagation()};
+  $('lb-album').onchange=async e=>{const a=+e.target.value;if(!a)return;await api(`/api/albums/${a}/add`,{ids:[p.id]});p.albums.push(a);dirty=true;showLb()};
+  if(p.kind!=='video')drawHist(p);
+  if((status.ai||{}).state==='ready'&&p.ai_done===1)api(`/api/similar/${p.id}`).then(ids=>{if(!state.lb||state.lb.list[state.lb.idx]!==p||!ids.length)return;$('lb-simwrap').hidden=false;$('lb-sim').innerHTML=ids.slice(0,8).map(id=>`<img src="/thumb/${id}.jpg" data-sim="${id}" alt="" loading="lazy">`).join('');$('lb-sim').querySelectorAll('img').forEach(im=>im.onclick=()=>{const q=byId.get(+im.dataset.sim);if(!q)return;const i=state.lb.list.indexOf(q);if(i>=0)state.lb.idx=i;else{state.lb.list=[q];state.lb.idx=0}showLb()})}).catch(()=>{});
+}
+function drawHist(p){
+  const c=$('lb-hist');if(!c)return;const im=new Image();im.onload=()=>{
+    const w=96,h=Math.max(1,Math.round(96*im.height/im.width)),cv=document.createElement('canvas');cv.width=w;cv.height=h;const x=cv.getContext('2d',{willReadFrequently:true});x.drawImage(im,0,0,w,h);
+    let px;try{px=x.getImageData(0,0,w,h).data}catch(_){return}
+    const bins=[new Array(64).fill(0),new Array(64).fill(0),new Array(64).fill(0)];
+    for(let i=0;i<px.length;i+=4){bins[0][px[i]>>2]++;bins[1][px[i+1]>>2]++;bins[2][px[i+2]>>2]++}
+    const max=Math.max(...bins.flat()),g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);g.globalCompositeOperation='lighter';
+    ['rgba(240,90,80,.75)','rgba(80,200,120,.75)','rgba(90,140,255,.75)'].forEach((col,k)=>{g.fillStyle=col;g.beginPath();g.moveTo(0,c.height);bins[k].forEach((v,i)=>g.lineTo(i/63*c.width,c.height-4-v/max*(c.height-8)));g.lineTo(c.width,c.height);g.fill()});
+  };im.src=`/thumb/${p.id}.jpg?r=${p.rot||0}`;
+}
+let dirty=false;
+async function closeLb(){$('lb').hidden=true;state.lb=null;if(dirty){dirty=false;await load()}}
+$('lb-x').onclick=closeLb;
+$('lb-prev').onclick=()=>{if(state.lb.idx>0){state.lb.idx--;showLb()}};
+$('lb-next').onclick=()=>{if(state.lb.idx<state.lb.list.length-1){state.lb.idx++;showLb()}};
+$('stage').onclick=e=>{if(e.target===e.currentTarget)closeLb()};
+
+// ===================================================================== modals
+function modal(html,wide){const m=$('modal'),c=$('modal-card');c.className='card2'+(wide?' wide':'');c.innerHTML=html;m.hidden=false;return c}
+function closeModal(){$('modal').hidden=true;$('modal-card').innerHTML=''}
+function promptBox(title,ph,suggest=[],val=''){return new Promise(res=>{
+  const c=modal(`<h3>${esc(title)}</h3><input type="text" id="pb-in" placeholder="${esc(ph)}" value="${esc(val)}" list="pb-list"><datalist id="pb-list">${suggest.map(s=>`<option value="${esc(s)}">`).join('')}</datalist><div class="foot"><button class="btn" id="pb-c">Откажи</button><button class="btn primary" id="pb-ok">${val?'Зачувај':'Во ред'}</button></div>`);
+  const inp=c.querySelector('#pb-in');inp.focus();inp.select();
+  const done=v=>{closeModal();res(v)};
+  c.querySelector('#pb-c').onclick=()=>done(null);c.querySelector('#pb-ok').onclick=()=>{const v=inp.value.trim();if(v)done(v)};
+  inp.onkeydown=e=>{if(e.key==='Enter')c.querySelector('#pb-ok').click();if(e.key==='Escape')done(null)};
+})}
+function confirmBox(msg,ok='Да'){return new Promise(res=>{
+  const c=modal(`<h3>${esc(msg)}</h3><div class="foot"><button class="btn" id="cb-c">Откажи</button><button class="btn primary" id="cb-ok">${esc(ok)}</button></div>`);
+  c.querySelector('#cb-c').onclick=()=>{closeModal();res(false)};c.querySelector('#cb-ok').onclick=()=>{closeModal();res(true)};c.querySelector('#cb-ok').focus();
+})}
+function dateBox(d){return new Promise(res=>{
+  const pad=n=>String(n).padStart(2,'0'),v=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const c=modal(`<h3>Промени датум</h3><p class="muted" style="margin:0">Сликата ќе се премести во папката за новиот месец.</p><input type="datetime-local" id="db-in" value="${v}"><div class="foot"><button class="btn" id="db-c">Откажи</button><button class="btn primary" id="db-ok">Зачувај</button></div>`);
+  c.querySelector('#db-c').onclick=()=>{closeModal();res(null)};c.querySelector('#db-ok').onclick=()=>{const x=c.querySelector('#db-in').value;closeModal();res(x?x+':00':null)};
+})}
+async function newAlbum(){const name=await promptBox('Нов албум','Име на албумот, пр. Охрид 2024');if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await load();go('album',r.id);toast(`Албумот „${name}“ е создаден. Избери слики и додај ги во него.`)}
+$('renalbum').onclick=async()=>{const a=data.albums.find(x=>x.id===state.key);if(!a)return;const name=await promptBox('Преименувај албум','Име',[],a.name);if(!name)return;await api(`/api/albums/${a.id}/rename`,{name});await load();toast('Албумот е преименуван')};
+$('delalbum').onclick=async()=>{const a=data.albums.find(x=>x.id===state.key);if(!a)return;if(!await confirmBox(`Да се избрише албумот „${a.name}“? Сликите остануваат во библиотеката.`,'Избриши'))return;await api(`/api/albums/${a.id}/delete`,{});go('all');await load();toast('Албумот е избришан')};
+$('saveevent').onclick=async()=>{const e=events.find(x=>x.id===state.key);if(!e)return;const name=await promptBox('Зачувај настан како албум','Име',[],`${e.title} ${e.first.getFullYear()}`);if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await api(`/api/albums/${r.id}/add`,{ids:e.ids});await load();go('album',r.id);toast('Албумот е создаден')};
+
+// ---------- folder picking
+async function pickFolder(title){
+  try{const r=await api('/api/pick-folder',{title});if(!r.error)return r.path;}catch(_){}
+  return browseFolder(title);
+}
+function browseFolder(title,start=''){return new Promise(res=>{
+  const c=modal(`<h3>${esc(title)}</h3><div class="crumbs" id="bf-path"></div><div class="browser" id="bf-list"></div><div class="foot"><button class="btn" id="bf-c">Откажи</button><button class="btn primary" id="bf-ok" disabled>Избери ја оваа папка</button></div>`,true);
+  let cur='';
+  async function open(p){cur=p;const r=await api('/api/browse?path='+encodeURIComponent(p));
+    c.querySelector('#bf-path').textContent=r.path||'Избери диск или папка';c.querySelector('#bf-ok').disabled=!r.path;
+    const items=(r.path?[{name:'↑ Назад',path:r.parent||'',up:1}]:[]).concat(r.path?r.dirs:r.roots);
+    c.querySelector('#bf-list').innerHTML=items.map(d=>`<button data-p="${esc(d.path)}">${d.up?'':I.folder}<span>${esc(d.name)}</span></button>`).join('')||'<div style="padding:12px" class="muted">Нема подпапки</div>';
+    c.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>open(b.dataset.p));}
+  c.querySelector('#bf-c').onclick=()=>{closeModal();res(null)};c.querySelector('#bf-ok').onclick=()=>{closeModal();res(cur)};
+  open(start);
+})}
+async function addWatchFolder(){
+  const p=await pickFolder('Избери папка со слики што да се следи');if(!p)return;
+  const srcs=[...new Set([...(cfg.sources||[]),p])];cfg=await api('/api/config',{sources:srcs,configured:true});
+  if(!cfg.sources.includes(p)){toast('Таа папка не може да се додаде (не постои или е внатре во библиотеката)');return}
+  await api('/api/scan',{});toast('Папката е додадена. Сликите од неа се средуваат.');refreshStatus();
+}
+
+// ===================================================================== onboarding
+async function onboarding(){
+  let step=1,sel=new Set(),extra=[],mode='copy',ai=true,lib=cfg.library,sugg=null;
+  const draw=async()=>{
+    if(step===1){
+      const c=modal(`<div class="steps"><i class="on"></i><i></i></div><h3>Добредојде во Фотоархива</h3><p class="muted" style="margin:0">Избери каде на компјутерот имаш слики. Апликацијата ќе ги најде сите, ќе ги среди по година и месец и ќе ги следи за нови слики.</p><div class="flist" id="ob-list"><div class="fitem"><span class="spin"></span><span class="muted">Ги барам папките со слики…</span></div></div><button class="btn" id="ob-add">${I.plus.replace('<svg','<svg width="16" height="16"')} Додај друга папка или диск…</button><div class="foot"><button class="btn primary" id="ob-next">Продолжи</button></div>`,true);
+      c.querySelector('#ob-add').onclick=async()=>{const p=await pickFolder('Избери папка со слики');if(p&&!extra.includes(p)){extra.push(p);sel.add(p)}draw()};
+      c.querySelector('#ob-next').onclick=()=>{if(!sel.size){toast('Избери барем една папка');return}step=2;draw()};
+      if(!sugg){sugg=await api('/api/suggest-folders');sugg.forEach(s=>{if(s.count>0&&!/Documents$/.test(s.path))sel.add(s.path)})}
+      const items=[...sugg,...extra.filter(e=>!sugg.some(s=>s.path===e)).map(e=>({path:e,name:e.split(/[\\/]/).filter(Boolean).pop(),count:null}))];
+      const el=c.querySelector('#ob-list');if(!el)return;
+      el.innerHTML=items.length?items.map(s=>`<label class="fitem"><input type="checkbox" data-p="${esc(s.path)}" ${sel.has(s.path)?'checked':''}><span class="fp"><b>${esc(s.name)}</b><small>${esc(s.path)}</small></span><span class="cnt num">${s.count==null?'':s.count?(s.more?'над ':'')+plural(s.count,'слика или видео','слики и видеа'):'празна'}</span></label>`).join(''):'<div class="muted">Не најдов стандардни папки. Додај ги рачно.</div>';
+      el.querySelectorAll('input').forEach(i=>i.onchange=()=>{i.checked?sel.add(i.dataset.p):sel.delete(i.dataset.p)});
+    }else{
+      const c=modal(`<div class="steps"><i class="on"></i><i class="on"></i></div><h3>Како да се средат?</h3>
+        <div class="flist">
+          <label class="choice"><input type="radio" name="ob-mode" value="copy" ${mode==='copy'?'checked':''}><span><b>Копирај ги (препорачано)</b><small>Оригиналите остануваат каде што се. Безбедно, но зафаќа повеќе простор.</small></span></label>
+          <label class="choice"><input type="radio" name="ob-mode" value="move" ${mode==='move'?'checked':''}><span><b>Премести ги</b><small>Сликите се преместуваат во библиотеката. Не се дуплира просторот.</small></span></label>
+        </div>
+        <div><div class="eyebrow" style="margin-bottom:6px">Средените слики ќе бидат во</div><div class="pathbox"><code id="ob-lib">${esc(lib)}</code><button class="btn sm" id="ob-chlib">Промени</button></div></div>
+        <label class="choice"><input type="checkbox" id="ob-ai" ${ai?'checked':''}><span><b>Паметно препознавање на содржина</b><small>Препознава море, планини, луѓе, деца, храна, животни, документи и друго. Еднократно симнува ~155 MB. Работи на твојот компјутер.</small></span></label>
+        <div class="foot"><button class="btn" id="ob-back">Назад</button><button class="btn primary" id="ob-go">Почни</button></div>`,true);
+      c.querySelectorAll('[name=ob-mode]').forEach(r=>r.onchange=()=>mode=r.value);
+      c.querySelector('#ob-ai').onchange=e=>ai=e.target.checked;
+      c.querySelector('#ob-chlib').onclick=async()=>{const p=await pickFolder('Каде да бидат средените слики?');if(p){lib=p.replace(/[\\/]+$/,'')+(/Фотоархива$/.test(p)?'':(p.includes('\\')?'\\':'/')+'Фотоархива')}draw()};
+      c.querySelector('#ob-back').onclick=()=>{step=1;draw()};
+      c.querySelector('#ob-go').onclick=async()=>{
+        cfg=await api('/api/config',{library:lib,sources:[...sel],mode,ai,configured:true});
+        if(ai)await api('/api/ai/enable',{});
+        await api('/api/scan',{});closeModal();toast('Почнувам. Сликите ќе се појавуваат како што се средуваат.');await load();refreshStatus();
+      };
+    }
+  };
+  draw();
+}
+
+// ===================================================================== settings
+async function settings(){
+  cfg=await api('/api/config');
+  const ai=status.ai||{};
+  const aiTxt={ready:'Вклучено и подготвено.',downloading:`Се симнува… ${Math.round((ai.progress||0)*100)}%`,loading:'Се подготвува…',not_downloaded:'Не е вклучено.',error:ai.message,missing_deps:ai.message}[ai.state]||'';
+  const c=modal(`<h3>Поставки</h3>
+    <div class="setsec"><h4>Папки што се следат</h4><p class="muted" style="margin:0">Новите слики во овие папки автоматски се додаваат.</p>
+      <div class="flist" id="st-src">${(cfg.sources||[]).map(s=>`<div class="fitem"><span class="fp"><b>${esc(s.split(/[\\/]/).filter(Boolean).pop()||s)}</b><small>${esc(s)}</small></span><button class="btn sm danger" data-rm="${esc(s)}">Тргни</button></div>`).join('')||'<div class="muted">Нема папки.</div>'}</div>
+      <div><button class="btn sm" id="st-add">${I.plus.replace('<svg','<svg width="15" height="15"')} Додај папка</button> <button class="btn sm" id="st-scan">Скенирај сега</button></div></div>
+    <div class="setsec"><h4>Библиотека</h4><div class="pathbox"><code>${esc(cfg.library)}</code><button class="btn sm" id="st-open">Отвори</button><button class="btn sm" id="st-lib">Промени</button></div>
+      <div class="flist"><label class="choice"><input type="radio" name="st-mode" value="copy" ${cfg.mode==='copy'?'checked':''}><span><b>Копирај</b><small>Оригиналите остануваат.</small></span></label>
+      <label class="choice"><input type="radio" name="st-mode" value="move" ${cfg.mode==='move'?'checked':''}><span><b>Премести</b><small>Оригиналите се преместуваат во библиотеката.</small></span></label></div>
+      <label class="muted">Провери за нови слики на секои <input type="number" id="st-int" min="10" max="3600" value="${cfg.watch_seconds}" style="width:90px"> секунди</label></div>
+    <div class="setsec"><h4>Паметно препознавање</h4><p class="muted" style="margin:0">${esc(aiTxt)}</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${ai.state==='ready'?'<button class="btn sm" id="st-re">Анализирај ги сите повторно</button>':ai.state!=='missing_deps'&&ai.state!=='downloading'&&ai.state!=='loading'?'<button class="btn sm primary" id="st-ai">Вклучи</button>':''}</div></div>
+    ${cfg.windows?`<div class="setsec"><h4>Windows</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="st-lnk">Направи икона на Desktop</button></div>
+      <label class="choice"><input type="checkbox" id="st-auto" ${cfg.autostart?'checked':''}><span><b>Стартувај со Windows</b><small>Работи тивко во позадина и ги средува новите слики, без да отвора прозорец.</small></span></label></div>`:''}
+    <div class="setsec"><h4>За апликацијата</h4><p class="muted" style="margin:0">Верзија ${esc(cfg.version)} · HEIC ${cfg.heif?'да':'не'} · видео сликички ${cfg.ffmpeg?'да':'не'}</p>
+      <div><button class="btn sm danger" id="st-quit">Исклучи ја апликацијата</button></div></div>
+    <div class="foot"><button class="btn primary" id="st-close">Готово</button></div>`,true);
+  const save=async patch=>{cfg=await api('/api/config',patch)};
+  c.querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{await save({sources:cfg.sources.filter(s=>s!==b.dataset.rm)});toast('Папката повеќе не се следи. Веќе средените слики остануваат.');settings()});
+  c.querySelector('#st-add').onclick=async()=>{const p=await pickFolder('Избери папка со слики');if(p){await save({sources:[...cfg.sources,p],configured:true});await api('/api/scan',{});}settings()};
+  c.querySelector('#st-scan').onclick=async()=>{await api('/api/scan',{});toast('Скенирањето почна');closeModal();refreshStatus()};
+  c.querySelector('#st-open').onclick=()=>api('/api/open-library',{});
+  c.querySelector('#st-lib').onclick=async()=>{if(!await confirmBox('Нова библиотека почнува празна, а постојната останува на дискот. Продолжи?','Продолжи'))return settings();const p=await pickFolder('Избери нова локација за библиотеката');if(p){await save({library:p});await load()}settings()};
+  c.querySelectorAll('[name=st-mode]').forEach(r=>r.onchange=()=>save({mode:r.value}));
+  c.querySelector('#st-int').onchange=e=>save({watch_seconds:+e.target.value||30});
+  const re=c.querySelector('#st-re');if(re)re.onclick=async()=>{await api('/api/ai/reanalyze',{});toast('Сликите повторно се анализираат');closeModal();refreshStatus()};
+  const ae=c.querySelector('#st-ai');if(ae)ae.onclick=async()=>{await api('/api/ai/enable',{});toast('Почнува симнувањето');closeModal();refreshStatus()};
+  const ln=c.querySelector('#st-lnk');if(ln)ln.onclick=async()=>{const r=await api('/api/system/shortcut',{});toast(r.result==='ok'?'Иконата „Фотоархива“ е на Desktop':r.result)};
+  const au=c.querySelector('#st-auto');if(au)au.onchange=async e=>{const r=await api('/api/system/autostart',{on:e.target.checked});toast(r.autostart?'Ќе се стартува со Windows':'Нема да се стартува со Windows')};
+  c.querySelector('#st-quit').onclick=async()=>{if(!await confirmBox('Да се исклучи Фотоархива? Новите слики нема да се средуваат додека повторно не ја стартуваш.','Исклучи'))return;await api('/api/quit',{}).catch(()=>{});document.body.innerHTML='<div style="display:grid;place-items:center;height:100%;font-size:18px">Фотоархива е исклучена. Може да го затвориш прозорецот.</div>'};
+  c.querySelector('#st-close').onclick=closeModal;
+}
+$('setbtn').onclick=settings;
+
+// ===================================================================== import / upload
+$('importbtn').onclick=e=>{e.stopPropagation();$('importmenu').hidden=!$('importmenu').hidden};
+document.addEventListener('click',e=>{if(!e.target.closest('.dropdown'))$('importmenu').hidden=true});
+$('m-files').onclick=()=>{$('importmenu').hidden=true;$('file-in').click()};
+$('m-folder').onclick=()=>{$('importmenu').hidden=true;$('dir-in').click()};
+$('m-watch').onclick=()=>{$('importmenu').hidden=true;addWatchFolder()};
+$('file-in').onchange=e=>{uploadFiles([...e.target.files]);e.target.value=''};
+$('dir-in').onchange=e=>{uploadFiles([...e.target.files]);e.target.value=''};
+const MEDIA=/\.(jpe?g|png|gif|webp|bmp|tiff?|heic|heif|dng|cr2|nef|arw|mp4|mov|m4v|avi|mkv|3gp|webm|mts)$/i;
+async function uploadFiles(files){
+  files=files.filter(f=>MEDIA.test(f.name));
+  if(!files.length){toast('Нема слики или видеа меѓу избраните датотеки');return}
+  if(upload){upload.total+=files.length;upload.q.push(...files);return}
+  upload={total:files.length,done:0,added:0,dup:0,err:0,q:[...files]};renderNotices();
+  const worker=async()=>{while(upload.q.length){const f=upload.q.shift();
+    try{const r=await fetch('/api/upload',{method:'POST',headers:{'X-File-Name':encodeURIComponent(f.name),'X-File-Mtime':String(f.lastModified||Date.now())},body:f});const j=await r.json();
+      if(j.result==='added')upload.added++;else if(j.result==='duplicate')upload.dup++;else if(j.error)upload.err++;}catch(_){upload.err++}
+    upload.done++;renderNotices();}};
+  await Promise.all([worker(),worker(),worker()]);
+  const u=upload;upload=null;toast(`Готово: ${plural(u.added,'нова слика','нови слики')}${u.dup?`, ${u.dup} веќе постоеја`:''}${u.err?`, ${u.err} неуспешни`:''}`);
+  go('recent');await load();
+}
+let dragDepth=0;
+window.addEventListener('dragenter',e=>{if([...e.dataTransfer.types].includes('Files')){e.preventDefault();dragDepth++;$('drop').hidden=false}});
+window.addEventListener('dragover',e=>{if([...e.dataTransfer.types].includes('Files'))e.preventDefault()});
+window.addEventListener('dragleave',()=>{if(--dragDepth<=0){dragDepth=0;$('drop').hidden=true}});
+window.addEventListener('drop',async e=>{e.preventDefault();dragDepth=0;$('drop').hidden=true;
+  const items=[...e.dataTransfer.items].map(i=>i.webkitGetAsEntry&&i.webkitGetAsEntry()).filter(Boolean);
+  if(!items.length)return uploadFiles([...e.dataTransfer.files]);
+  const out=[];
+  async function walk(en){if(en.isFile){out.push(await new Promise(r=>en.file(r,()=>r(null))))}else if(en.isDirectory){const rd=en.createReader();let batch;do{batch=await new Promise(r=>rd.readEntries(r,()=>r([])));for(const x of batch)await walk(x)}while(batch.length)}}
+  for(const en of items)await walk(en);
+  uploadFiles(out.filter(Boolean));
+});
+
+// ===================================================================== keyboard, search, misc
+document.addEventListener('keydown',e=>{
+  if(!$('modal').hidden){if(e.key==='Escape'&&!$('modal-card').querySelector('#ob-next,#ob-go'))closeModal();return}
+  if(state.lb){if(e.key==='Escape')closeLb();if(e.key==='ArrowLeft')$('lb-prev').click();if(e.key==='ArrowRight')$('lb-next').click();if(e.key==='Delete')$('lb-del').click();return}
+  const typing=['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName);
+  if(e.key==='/'&&!typing){e.preventDefault();$('q').focus()}
+  if(e.key==='Escape'&&state.sel.size)clearSel();
+  if(e.key==='Delete'&&state.sel.size&&!typing)$('a-del').click();
+  if((e.ctrlKey||e.metaKey)&&e.key==='a'&&!typing){e.preventDefault();visible().forEach(p=>state.sel.add(p.id));state.selecting=true;syncSel()}
+});
+let qt;$('q').oninput=e=>{clearTimeout(qt);qt=setTimeout(()=>{const q=e.target.value.trim();if(q&&!state.q&&state.view!=='trash'){state.view='all';state.key=null;state.chip=null}state.q=q;render()},160)};
+$('sortbtn').onclick=()=>{state.sortDesc=!state.sortDesc;render()};
+const sizes={'sz-s':'110px','sz-m':'168px','sz-l':'250px'};
+for(const id in sizes)$(id).onclick=()=>{if(innerWidth>900)document.documentElement.style.setProperty('--tile',sizes[id]);for(const k in sizes)$(k).setAttribute('aria-pressed',k===id);store.set('tile',id)};
+{const s=store.get('tile','sz-m');if(sizes[s])$(s).click()}
+$('menubtn').onclick=()=>{$('rail').classList.add('open');$('scrim').classList.add('on')};
+function closeRail(){$('rail').classList.remove('open');$('scrim').classList.remove('on')}
+$('scrim').onclick=closeRail;
+
+// ===================================================================== polling
+async function refreshStatus(){try{status=await api('/api/status');renderNotices()}catch(_){}}
+async function poll(){
+  try{
+    const prev=status;status=await api('/api/status');
+    const busy=state.lb||state.sel.size||!$('modal').hidden||upload;
+    const changed=status.version!==state.version;
+    const working=status.state==='scanning'||(status.ai&&status.ai.state==='ready'&&status.ai_pending>0);
+    if(changed&&!busy&&(!working||Date.now()-lastLoad>6000))await load();
+    else renderNotices();
+    if(prev.state==='scanning'&&status.state!=='scanning'&&!busy)await load();
+  }catch(_){
+    $('notices').innerHTML='<div class="notice"><div class="t"><div><b>Апликацијата не одговара.</b><div class="sub">Можеби е исклучена. Стартувај ја повторно со иконата „Фотоархива“ или со start.bat.</div></div></div></div>';
+  }
+  setTimeout(poll,2000);
+}
+(async()=>{
+  cfg=await api('/api/config');status=await api('/api/status');
+  await load();
+  if(!cfg.configured)onboarding();
+  poll();
+})();
+</script>
+</body>
+</html>
