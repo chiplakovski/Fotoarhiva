@@ -45,10 +45,11 @@ sys.path.insert(0, str(APP_DIR))
 from places import Places  # noqa: E402
 from ai import AI, MODELS, DEFAULT_MODEL, LABELS, MK2EN, labels_public  # noqa: E402
 from cloud import CloudAI, CLOUD_MODELS, DEFAULT_CLOUD_MODEL  # noqa: E402
+from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.2"
+VERSION = "2.3"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -99,6 +100,7 @@ def load_config():
     cfg.setdefault("model", DEFAULT_MODEL)
     cfg.setdefault("my_places", [])
     cfg.setdefault("tag_lang", "mk")
+    cfg.setdefault("describer", "local")  # off | local | cloud
     return cfg
 
 
@@ -632,19 +634,21 @@ class Library:
             return self.db.execute("SELECT COUNT(*) c FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video'").fetchone()["c"]
 
     def cloud_step(self, cloud, labels, workers=3):
+        """Опишување со „опишувач“: Claude (облак) или вградениот Qwen3-VL. Ист облик на резултат."""
         with self.db_lock:
             rows = self.db.execute("SELECT id,path,kind,cam,app,taken,rot FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video' LIMIT ?",
                                    (workers * 2,)).fetchall()
         if not rows:
             return False
         known = {mk for mk, _ in labels}
+        by = "vlm" if isinstance(cloud, LocalVLM) else "cloud"
 
         def one(r):
             f = self.abs(r["path"])
             try:
-                jpeg = cloud.image_bytes(f, r["rot"] or 0)
+                jpeg = CloudAI.image_bytes(f, r["rot"] or 0)
             except Exception:
-                jpeg = cloud.image_bytes(self.thumbs / f"{r['id']}.jpg")  # RAW и слично: преку сликичката
+                jpeg = CloudAI.image_bytes(self.thumbs / f"{r['id']}.jpg")  # RAW и слично: преку сликичката
             return r, cloud.describe(jpeg, labels)
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -653,7 +657,7 @@ class Library:
                 try:
                     results.append(fut.result())
                 except Exception as e:
-                    print("Claude:", e)
+                    print("Опишување:", e)
                     if cloud.state == "error":
                         return False
         with self.db_lock:
@@ -664,12 +668,12 @@ class Library:
                     continue
                 hidden = {x["tag"] for x in self.db.execute("SELECT tag FROM hidden_tags WHERE photo_id=?", (pid,))}
                 user = {x["tag"] for x in self.db.execute("SELECT tag FROM tags WHERE photo_id=? AND by='user'", (pid,))}
-                self.db.execute("DELETE FROM tags WHERE photo_id=? AND by IN ('ai','cloud')", (pid,))
+                self.db.execute("DELETE FROM tags WHERE photo_id=? AND by IN ('ai','cloud','vlm')", (pid,))
                 tags = [t.strip() for t in (d.get("tags") or []) if t.strip() in known][:5]
                 tags += [t.strip()[:40] for t in (d.get("new_tags") or []) if t.strip()][:3]
                 for n, t in enumerate(dict.fromkeys(tags)):
                     if t not in hidden and t not in user and t != "Скриншот":
-                        self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, 10.0 - n, "cloud"))
+                        self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, 10.0 - n, by))
                 cap = " | ".join(x for x in (d.get("caption_mk", "").strip(), d.get("caption_en", "").strip()) if x)
                 self.db.execute("UPDATE photos SET caption=?, cloud_done=1 WHERE id=?", (cap[:500], pid))
                 k = d.get("kind")
@@ -1129,7 +1133,12 @@ class App:
         self.ai = AI(DATA_DIR / "models", self.cfg.get("model", DEFAULT_MODEL))
         self.ai.set_custom(self.cfg.get("my_categories", []))
         self.cloud = CloudAI()
-        self.cloud.configure(self.cfg.get("cloud_enabled"), self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
+        if self.cfg.get("cloud_enabled") and self.cfg.get("describer") != "cloud":
+            self.cfg["describer"] = "cloud"  # корисник што веќе го користеше Claude
+            self.cfg["cloud_enabled"] = True
+        self.cloud.configure(self.cfg.get("describer") == "cloud", self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
+        self.vlm = LocalVLM(DATA_DIR / "models")
+        self.vlm.configure(self.cfg.get("describer") == "local")
         self.need_reclassify = False
         sig = self.labels_sig()
         old = str(self.cfg.get("labels_sig", ""))
@@ -1152,11 +1161,20 @@ class App:
         return [(mk, en) for mk, en, _, _ in LABELS if not mk.startswith("_")] + \
                [(c["name"], c.get("desc") or c["name"]) for c in self.cfg.get("my_categories", [])]
 
+    def describer(self):
+        d = self.cfg.get("describer")
+        if d == "cloud" and self.cloud.state == "ready":
+            return self.cloud, 3
+        if d == "local" and self.vlm.state == "ready":
+            return self.vlm, 1
+        return None, 0
+
     def cloud_worker(self):
         while True:
             try:
-                if self.cloud.state == "ready" and self.cfg.get("cloud_running", True) and self.lib.status["state"] != "scanning":
-                    if self.lib.cloud_step(self.cloud, self.cloud_labels()):
+                desc, workers = self.describer()
+                if desc and self.cfg.get("cloud_running", True) and self.lib.status["state"] != "scanning":
+                    if self.lib.cloud_step(desc, self.cloud_labels(), workers=workers):
                         continue
             except Exception as e:
                 print("Claude worker:", e)
@@ -1166,9 +1184,11 @@ class App:
     def status(self):
         s = dict(self.lib.status)
         s["cloud"] = self.cloud.info()
-        if self.cloud.state in ("ready", "error") and self.cloud.enabled:
+        s["vlm"] = self.vlm.info()
+        s["describer"] = self.cfg.get("describer", "off")
+        if self.cfg.get("describer") in ("cloud", "local"):
             n = self.lib.cloud_pending()
-            s["cloud"]["pending"] = n
+            s["cloud"]["pending"] = s["vlm"]["pending"] = n
             s["cloud"]["est_usd"] = round(n * CLOUD_MODELS[self.cloud.model]["usd_per_1000"] / 1000, 2)
         s["ai"] = self.ai.info()
         if self.ai.state == "ready":
@@ -1181,7 +1201,7 @@ class App:
                 "version": VERSION, "windows": IS_WIN, "heif": HEIF, "ffmpeg": bool(FFMPEG), "autostart": self._autostart,
                 "log": str(LOG_PATH), "model": self.ai.model_id, "my_places": self.cfg.get("my_places", []),
                 "tag_lang": self.cfg.get("tag_lang", "mk"), "my_categories": self.cfg.get("my_categories", []),
-                "cloud_enabled": bool(self.cfg.get("cloud_enabled")), "cloud_model": self.cloud.model,
+                "cloud_enabled": self.cfg.get("describer") == "cloud", "describer": self.cfg.get("describer", "off"), "cloud_model": self.cloud.model,
                 "cloud_key_hint": ("…" + self.cfg["cloud_key"][-4:]) if self.cfg.get("cloud_key") else "",
                 "cloud_running": self.cfg.get("cloud_running", True),
                 "cloud_models": [{"id": k, "name": v["name"], "usd_per_1000": v["usd_per_1000"]} for k, v in CLOUD_MODELS.items()], "can_uninstall": uninstaller() is not None,
@@ -1205,6 +1225,11 @@ class App:
             self.cfg["ai"] = bool(data["ai"])
         if data.get("tag_lang") in ("mk", "en"):
             self.cfg["tag_lang"] = data["tag_lang"]
+        if data.get("describer") in ("off", "local", "cloud"):
+            self.cfg["describer"] = data["describer"]
+            self.cfg["cloud_enabled"] = data["describer"] == "cloud"
+            self.vlm.configure(data["describer"] == "local")
+            self.cloud.configure(data["describer"] == "cloud", self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
         if any(k in data for k in ("cloud_enabled", "cloud_key", "cloud_model", "cloud_running")):
             if "cloud_key" in data and str(data["cloud_key"]).strip():
                 self.cfg["cloud_key"] = str(data["cloud_key"]).strip()
@@ -1212,6 +1237,11 @@ class App:
                 self.cfg["cloud_model"] = data["cloud_model"]
             if "cloud_enabled" in data:
                 self.cfg["cloud_enabled"] = bool(data["cloud_enabled"])
+                if data["cloud_enabled"]:
+                    self.cfg["describer"] = "cloud"
+                    self.vlm.configure(False)
+                elif self.cfg.get("describer") == "cloud":
+                    self.cfg["describer"] = "off"
             if "cloud_running" in data:
                 self.cfg["cloud_running"] = bool(data["cloud_running"])
             if data.get("cloud_scope") == "new":
@@ -1222,7 +1252,7 @@ class App:
                 with self.lib.db_lock:
                     self.lib.db.execute("UPDATE photos SET cloud_done=0 WHERE cloud_done=3")
                     self.lib.db.commit()
-            self.cloud.configure(self.cfg.get("cloud_enabled"), self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
+            self.cloud.configure(self.cfg.get("describer") == "cloud", self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
         if "my_categories" in data:
             cats = []
             for c in data["my_categories"]:
