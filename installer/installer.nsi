@@ -7,7 +7,7 @@ SetCompressorDictSize 64
 
 !define APPNAME "Фотоархива"
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.0.0"
+!define VERSION "2.1.0"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -16,7 +16,7 @@ InstallDir "$LOCALAPPDATA\Programs\Fotoarhiva"
 InstallDirRegKey HKCU "Software\${APPKEY}" "InstallDir"
 RequestExecutionLevel user
 BrandingText "${APPNAME} ${VERSION}"
-VIProductVersion "2.0.0.0"
+VIProductVersion "2.1.0.0"
 VIAddVersionKey /LANG=0 "ProductName" "Fotoarhiva"
 VIAddVersionKey /LANG=0 "FileDescription" "Fotoarhiva Setup"
 VIAddVersionKey /LANG=0 "FileVersion" "${VERSION}"
@@ -29,7 +29,7 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
 !define MUI_WELCOMEPAGE_TITLE "Добредојде во инсталацијата на Фотоархива"
 !define MUI_WELCOMEPAGE_TEXT "Фотоархива ги собира сите слики од компјутерот на едно место, ги средува по година и месец и препознава што има на нив.$\r$\n$\r$\nСè што е потребно е вклучено во инсталацијата. Не е потребна администраторска дозвола.$\r$\n$\r$\nСликите никогаш не се праќаат на интернет.$\r$\n$\r$\nКликни Напред за да продолжиш."
 !define MUI_FINISHPAGE_TITLE "Фотоархива е инсталирана"
-!define MUI_FINISHPAGE_TEXT "Иконата Фотоархива е додадена на Desktop и во Start менито."
+!define MUI_FINISHPAGE_TEXT "Иконата Фотоархива е додадена на Desktop и во Start менито.$\r$\n$\r$\nПри првото отворање се симнува моделот за паметно препознавање (околу 400 MB)."
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Отвори ја Фотоархива сега"
 !define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp

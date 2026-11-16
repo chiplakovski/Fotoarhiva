@@ -43,9 +43,10 @@ except Exception:
 
 sys.path.insert(0, str(APP_DIR))
 from places import Places  # noqa: E402
-from ai import AI  # noqa: E402
+from ai import AI, MODELS, DEFAULT_MODEL, LABELS, MK2EN, labels_public  # noqa: E402
+import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.0"
+VERSION = "2.1"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -93,6 +94,9 @@ def load_config():
     cfg.setdefault("port", 8765)
     cfg.setdefault("configured", bool(cfg["sources"]))
     cfg.setdefault("ai", True)
+    cfg.setdefault("model", DEFAULT_MODEL)
+    cfg.setdefault("my_places", [])
+    cfg.setdefault("tag_lang", "mk")
     return cfg
 
 
@@ -205,6 +209,23 @@ def detect_kind(ext, source, cam, w, h):
         if (h > w and 1.7 <= r <= 2.4 and w >= 640) or (w > h and 1.55 <= r <= 1.8 and w >= 1280):
             return "screenshot"
     return "photo"
+
+
+def haversine(lat1, lon1, lat2, lon2):
+    r = 6371000.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    return 2 * r * math.asin(min(1.0, math.sqrt(a)))
+
+
+def geocode(q):
+    """Пребарување адреса преку OpenStreetMap (Nominatim). Само кога корисникот бара место."""
+    url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
+        {"q": q, "format": "json", "limit": 6, "accept-language": "mk,en", "addressdetails": 0})
+    req = urllib.request.Request(url, headers={"User-Agent": "Fotoarhiva/2.1 (desktop photo organizer)"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        rows = json.loads(r.read().decode("utf-8"))
+    return [{"name": x.get("display_name", ""), "lat": float(x["lat"]), "lon": float(x["lon"])} for x in rows]
 
 
 # ----------------------------------------------------------------- library
@@ -491,7 +512,7 @@ class Library:
 
     def ai_step(self, ai, batch=16):
         with self.db_lock:
-            rows = self.db.execute("SELECT id,kind,cam,path,taken FROM photos WHERE ai_done=0 AND trash=0 LIMIT ?", (batch,)).fetchall()
+            rows = self.db.execute("SELECT id,kind,cam,path,taken,app FROM photos WHERE ai_done=0 AND trash=0 LIMIT ?", (batch,)).fetchall()
         if not rows:
             return False
         import numpy as np
@@ -521,9 +542,12 @@ class Library:
                         self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, s, "ai"))
                     self.db.execute("INSERT OR REPLACE INTO emb VALUES(?,?)", (pid, e.astype(np.float16).tobytes()))
                     # ВИ потврдува/поправа скриншот само ако нема податоци од камера
-                    if not r["cam"] and r["kind"] != "video":
-                        new_kind = "screenshot" if (top[0] == "Скриншот" and top[1] >= 0.45) else r["kind"]
-                        if r["kind"] == "screenshot" and top[0] not in ("Скриншот", "Документи", "Мемиња и графики", "_предмет") and top[1] >= 0.45:
+                    if not r["cam"] and r["kind"] != "video" and r["app"] != "Скриншот":
+                        # ВИ поправа скриншот само кога нема податоци од камера ниту име „Screenshot“
+                        new_kind = r["kind"]
+                        if top[0] == "Скриншот" and top[1] >= 0.25:
+                            new_kind = "screenshot"
+                        elif r["kind"] == "screenshot" and top[1] >= 0.30 and top[0] not in ("Скриншот", "Документи", "Мемиња и графики", "Мапа", "_предмет"):
                             new_kind = "photo"
                         if new_kind != r["kind"]:
                             self._move_kind(pid, r["path"], datetime.fromisoformat(r["taken"]), new_kind)
@@ -547,19 +571,14 @@ class Library:
 
     def similar(self, pid, n=24):
         import numpy as np
-        with self.db_lock:
-            if self.emb_cache is None:
-                rows = self.db.execute("SELECT e.photo_id, e.v FROM emb e JOIN photos p ON p.id=e.photo_id WHERE p.trash=0").fetchall()
-                ids = np.array([r["photo_id"] for r in rows], dtype=np.int64)
-                M = np.stack([np.frombuffer(r["v"], dtype=np.float16) for r in rows]).astype(np.float32) if rows else np.zeros((0, 1), np.float32)
-                self.emb_cache = (ids, M)
-        ids, M = self.emb_cache
+        ids, M = self.emb_matrix()
         hit = np.where(ids == pid)[0]
         if not len(hit):
             return []
         s = M @ M[hit[0]]
         order = np.argsort(-s)
-        return [int(ids[i]) for i in order if ids[i] != pid and s[i] > 0.80][:n]
+        mu, sd = float(s.mean()), float(s.std() or 1e-6)
+        return [int(ids[i]) for i in order if ids[i] != pid and s[i] > max(0.75, mu + 2.5 * sd)][:n]
 
     # ---- data for the UI
     def snapshot(self):
@@ -572,7 +591,17 @@ class Library:
                 tg.setdefault(r["photo_id"], []).append(r["tag"])
             albums = [dict(r) for r in self.db.execute("SELECT * FROM albums ORDER BY name")]
             dups = self.db.execute("SELECT COUNT(*) c FROM seen WHERE result='duplicate'").fetchone()["c"]
-        photos = [dict(r, albums=ap.get(r["id"], []), tags=tg.get(r["id"], [])) for r in rows]
+        mine = [p for p in self.cfg.get("my_places", []) if p.get("lat") is not None]
+        def myplace(lat, lon):
+            if lat is None or not mine:
+                return None
+            best, br = None, 1e18
+            for m in mine:  # ако местата се преклопуваат, победува помалото (пр. Работа пред Град)
+                r = float(m.get("radius", 300))
+                if haversine(lat, lon, m["lat"], m["lon"]) <= r and r < br:
+                    best, br = m["name"], r
+            return best
+        photos = [dict(r, albums=ap.get(r["id"], []), tags=tg.get(r["id"], []), myplace=myplace(r["lat"], r["lon"])) for r in rows]
         try:
             total = shutil.disk_usage(self.root)[0]
         except Exception:
@@ -676,6 +705,39 @@ class Library:
                 self.db.execute("DELETE FROM album_photos WHERE album_id=?", (aid,))
             self.db.commit()
         self.bump()
+
+    def reset_ai(self):
+        """Ги брише старите ВИ-ознаки и вектори (нов модел или нови категории) и ги анализира сликите одново."""
+        with self.db_lock:
+            self.db.execute("DELETE FROM tags WHERE by='ai'")
+            self.db.execute("DELETE FROM emb")
+            self.db.execute("UPDATE photos SET ai_done=0 WHERE kind!='video'")
+            self.db.commit()
+        self.emb_cache = None
+        self.status["ai_done"] = 0
+        self.bump()
+
+    def emb_matrix(self):
+        import numpy as np
+        with self.db_lock:
+            if self.emb_cache is None:
+                rows = self.db.execute("SELECT e.photo_id, e.v FROM emb e JOIN photos p ON p.id=e.photo_id WHERE p.trash=0").fetchall()
+                ids = np.array([r["photo_id"] for r in rows], dtype=np.int64)
+                M = np.stack([np.frombuffer(r["v"], dtype=np.float16) for r in rows]).astype(np.float32) if rows else np.zeros((0, 1), np.float32)
+                self.emb_cache = (ids, M)
+        return self.emb_cache
+
+    def semantic_search(self, qv, limit=300):
+        import numpy as np
+        ids, M = self.emb_matrix()
+        if not len(ids) or M.shape[1] != qv.shape[0]:
+            return []
+        s = M @ qv
+        mu, sd = float(s.mean()), float(s.std() or 1e-6)
+        order = np.argsort(-s)[:limit]
+        top = float(s[order[0]])
+        cut = max(mu + 1.6 * sd, top - 6 * sd if len(ids) > 20 else -1)
+        return [{"id": int(ids[i]), "score": round(float((s[i] - mu) / sd), 2)} for i in order if s[i] >= cut]
 
     def reanalyze(self):
         with self.db_lock:
@@ -890,7 +952,19 @@ class App:
         self.cfg = load_config()
         self.places = Places()
         self.lib = Library(self.cfg, self.places)
-        self.ai = AI(DATA_DIR / "models")
+        old = DATA_DIR / "models" / "vision.onnx"  # модел од верзија 2.0
+        if old.exists():
+            for f in ("vision.onnx", "text.onnx", "tokenizer.json"):
+                try:
+                    (DATA_DIR / "models" / f).unlink()
+                except OSError:
+                    pass
+        self.ai = AI(DATA_DIR / "models", self.cfg.get("model", DEFAULT_MODEL))
+        sig = f"{self.ai.model_id}:" + hashlib.sha1("|".join(l[0] for l in LABELS).encode("utf-8")).hexdigest()[:10]
+        if self.cfg.get("labels_sig") != sig:
+            self.lib.reset_ai()
+            self.cfg["labels_sig"] = sig
+            save_config(self.cfg)
         self.wake = threading.Event()
         self.httpd = None
         self._autostart = autostart_on()
@@ -906,7 +980,9 @@ class App:
         return {"library": str(self.lib.root), "sources": self.cfg["sources"], "mode": self.cfg["mode"],
                 "watch_seconds": self.cfg["watch_seconds"], "configured": self.cfg["configured"], "ai": self.cfg.get("ai", True),
                 "version": VERSION, "windows": IS_WIN, "heif": HEIF, "ffmpeg": bool(FFMPEG), "autostart": self._autostart,
-                "log": str(LOG_PATH)}
+                "log": str(LOG_PATH), "model": self.ai.model_id, "my_places": self.cfg.get("my_places", []),
+                "tag_lang": self.cfg.get("tag_lang", "mk"),
+                "models": [{"id": k, "name": v["name"], "name_en": v["name_en"], "about": v["about"], "multilingual": v["multilingual"]} for k, v in MODELS.items()]}
 
     def update_config(self, data):
         if "sources" in data:
@@ -924,6 +1000,17 @@ class App:
             self.cfg["configured"] = bool(data["configured"])
         if "ai" in data:
             self.cfg["ai"] = bool(data["ai"])
+        if data.get("tag_lang") in ("mk", "en"):
+            self.cfg["tag_lang"] = data["tag_lang"]
+        if "my_places" in data:
+            mp = []
+            for m in data["my_places"]:
+                try:
+                    mp.append({"name": str(m["name"]).strip()[:40] or "Место", "lat": float(m["lat"]), "lon": float(m["lon"]),
+                               "radius": max(50, min(20000, int(m.get("radius", 300))))})
+                except (KeyError, TypeError, ValueError):
+                    pass
+            self.cfg["my_places"] = mp
         if data.get("library") and Path(data["library"]).resolve() != self.lib.root.resolve():
             self.cfg["library"] = str(Path(data["library"]))
             with self.lib.scan_lock:
@@ -961,6 +1048,19 @@ class App:
                 print("Грешка при препознавање:", e)
                 time.sleep(5)
             time.sleep(2)
+
+    def set_model(self, model_id):
+        if model_id not in MODELS or model_id == self.ai.model_id:
+            return
+        self.cfg["model"] = model_id
+        self.ai = AI(DATA_DIR / "models", model_id)
+        self.lib.reset_ai()
+        self.cfg["labels_sig"] = f"{model_id}:" + hashlib.sha1("|".join(l[0] for l in LABELS).encode("utf-8")).hexdigest()[:10]
+        save_config(self.cfg)
+        if self.ai.state == "not_downloaded":
+            threading.Thread(target=self.ai.download, daemon=True).start()
+        elif self.ai.downloaded():
+            threading.Thread(target=self.ai.load, daemon=True).start()
 
     def enable_ai(self):
         self.cfg["ai"] = True
@@ -1057,6 +1157,20 @@ def make_handler(app: App):
                 self.send_json(suggest_folders(lib.root))
             elif path == "/api/browse":
                 self.send_json(browse((q.get("path") or [""])[0]))
+            elif path == "/api/labels":
+                self.send_json(labels_public())
+            elif path == "/api/search":
+                q = (q.get("q") or [""])[0].strip()
+                if not q or app.ai.state != "ready":
+                    self.send_json({"ready": app.ai.state == "ready", "results": []})
+                else:
+                    self.send_json({"ready": True, "results": lib.semantic_search(app.ai.query_vector(q))})
+            elif path == "/api/geocode":
+                try:
+                    self.send_json(geocode((q.get("q") or [""])[0]))
+                except Exception as e:
+                    print("Geocode:", e)
+                    self.send_json({"error": "Пребарувањето адреса не успеа"}, 502)
             elif path.startswith("/api/similar/"):
                 pid = path.rsplit("/", 1)[1]
                 self.send_json(lib.similar(int(pid)) if pid.isdigit() else [])
@@ -1156,6 +1270,9 @@ def make_handler(app: App):
                     self.send_json({"ok": True})
                 elif path == "/api/ai/enable":
                     app.enable_ai()
+                    self.send_json(app.ai.info())
+                elif path == "/api/ai/model":
+                    app.set_model(str(data.get("model", "")))
                     self.send_json(app.ai.info())
                 elif path == "/api/ai/reanalyze":
                     lib.reanalyze()

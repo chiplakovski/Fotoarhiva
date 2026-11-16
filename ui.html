@@ -262,7 +262,7 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
       <button class="iconbtn menubtn" id="menubtn" aria-label="Мени"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
       <label class="search">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input id="q" type="search" placeholder="Пребарај: море, Охрид, WhatsApp, 2023, куче…" autocomplete="off">
+        <input id="q" type="search" placeholder="Пребарај: куче на плажа, Охрид, birthday cake, 2023…" autocomplete="off">
       </label>
       <div class="seg" role="group" aria-label="Големина">
         <button id="sz-s" aria-pressed="false" title="Мали"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="4" height="4" rx="1"/><rect x="10" y="3" width="4" height="4" rx="1"/><rect x="17" y="3" width="4" height="4" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="17" y="10" width="4" height="4" rx="1"/><rect x="3" y="17" width="4" height="4" rx="1"/><rect x="10" y="17" width="4" height="4" rx="1"/><rect x="17" y="17" width="4" height="4" rx="1"/></svg></button>
@@ -352,6 +352,7 @@ const I={
   pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
   star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
   dup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
   src:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 6h16v10H8l-4 4z"/></svg>',
   chev:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
   folder:'<svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
@@ -381,19 +382,19 @@ function buildEvents(){
     cur.ids.push(p.id);cur.last=p.d;if(p.place)cur.place=p.place;
   }
   events=out.filter(e=>e.ids.length>=5).map(e=>{
-    const cnt={};for(const id of e.ids){const pl=byId.get(id).place;if(pl)cnt[pl]=(cnt[pl]||0)+1}
+    const cnt={};for(const id of e.ids){const q=byId.get(id),pl=q.myplace||q.place;if(pl)cnt[pl]=(cnt[pl]||0)+1}
     const places=Object.entries(cnt).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
     const tc={};for(const id of e.ids)for(const t of byId.get(id).tags||[])tc[t]=(tc[t]||0)+1;
     const topTag=Object.entries(tc).sort((a,b)=>b[1]-a[1])[0];
     const sameDay=e.first.toDateString()===e.last.toDateString();
     const range=sameDay?fmtDay(e.first):(e.first.getMonth()===e.last.getMonth()&&e.first.getFullYear()===e.last.getFullYear()?`${e.first.getDate()}–${e.last.getDate()}. ${MONTHS[e.last.getMonth()].toLowerCase()} ${e.last.getFullYear()}`:`${fmtDay(e.first)} – ${fmtDay(e.last)}`);
-    const title=places.length?places.slice(0,2).join(', '):(topTag&&topTag[1]>=e.ids.length/3?topTag[0]:(sameDay?'Ден '+fmtDay(e.first):'Настан'));
+    const title=places.length?places.slice(0,2).join(', '):(topTag&&topTag[1]>=e.ids.length/3?tagName(topTag[0]):(sameDay?'Ден '+fmtDay(e.first):'Настан'));
     return {id:e.ids[0],ids:e.ids,title,range,first:e.first,count:e.ids.length};
   }).reverse();
 }
 
 // ===================================================================== filtering
-const searchText=p=>(p._s||(p._s=[p.name,p.place,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
+const searchText=p=>(p._s||(p._s=[p.name,p.place,p.myplace,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...(p.tags||[]).map(t=>TAG_EN[t]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
 function baseList(){
   const now=Date.now(),v=state.view,k=state.key;
   let ev=v==='event'?new Set((events.find(e=>e.id===k)||{ids:[]}).ids):null;
@@ -408,17 +409,39 @@ function baseList(){
       case 'album':return p.albums.includes(k);
       case 'tag':return (p.tags||[]).includes(k);
       case 'place':return p.place===k;
+      case 'myplace':return p.myplace===k;
       case 'app':return p.app===k;
       case 'event':return ev.has(p.id);
     }
     return true;
   });
 }
+let sem={q:'',scores:new Map(),busy:false};
 function visible(){
   let list=baseList();
-  if(state.chip){const [t,val]=state.chip;list=list.filter(p=>t==='tag'?(p.tags||[]).includes(val):t==='kind'?p.kind===val:p.place===val)}
-  if(state.q){const words=state.q.toLowerCase().split(/\s+/).filter(Boolean);list=list.filter(p=>{const s=searchText(p);return words.every(w=>s.includes(w))})}
+  if(state.chip){const [t,val]=state.chip;list=list.filter(p=>t==='tag'?(p.tags||[]).includes(val):t==='kind'?p.kind===val:t==='myplace'?p.myplace===val:p.place===val)}
+  if(state.q){
+    const words=state.q.toLowerCase().split(/\s+/).filter(Boolean);
+    const inView=new Set(list.map(p=>p.id));
+    const text=list.filter(p=>{const s=searchText(p);return words.every(w=>s.includes(w))});
+    if(sem.q===state.q&&sem.scores.size){
+      const seen=new Set(text.map(p=>p.id));
+      for(const [id] of sem.scores){const p=byId.get(id);if(p&&inView.has(id)&&!seen.has(id)){text.push(p);seen.add(id)}}
+      const sc=p=>(sem.scores.get(p.id)||0)+(words.every(w=>searchText(p).includes(w))?3:0);
+      return text.sort((a,b)=>sc(b)-sc(a)||b.d-a.d);
+    }
+    return text.sort((a,b)=>state.sortDesc?b.d-a.d:a.d-b.d);
+  }
   return list.sort((a,b)=>state.sortDesc?b.d-a.d:a.d-b.d);
+}
+let semT;
+function semanticSearch(){
+  clearTimeout(semT);
+  const q=state.q;if(!q||(status.ai||{}).state!=='ready'){sem={q:'',scores:new Map()};return}
+  semT=setTimeout(async()=>{
+    try{const r=await api('/api/search?q='+encodeURIComponent(q));if(state.q!==q)return;
+      sem={q,scores:new Map(r.results.map(x=>[x.id,x.score]))};render()}catch(_){}
+  },350);
 }
 
 // ===================================================================== sidebar
@@ -445,8 +468,9 @@ function renderNav(){
   if(ns)h+=navBtn('kind','screenshot',I.screen,'Скриншоти',ns);
   h+=section('albums','Албуми',data.albums.map(a=>navBtn('album',a.id,`<span class="sw" style="background:${esc(a.color)}"></span>`,a.name,live.filter(p=>p.albums.includes(a.id)).length)),8,`<button class="navbtn" id="newalbum">${I.plus}<span class="lbl">Нов албум</span></button>`);
   h+=section('events','Настани',events.map(e=>navBtn('event',e.id,I.star,`${e.title} · ${e.range}`,e.count)),5,events.length>5?navBtn('events',null,I.star,'Сите настани',events.length):'');
+  h+=section('myplaces','Мои места',(cfg.my_places||[]).map(m=>navBtn('myplace',m.name,I.home,m.name,live.filter(p=>p.myplace===m.name).length)),8,`<button class="navbtn" id="addmyplace">${I.plus}<span class="lbl">Постави Дома, Работа…</span></button>`);
   h+=section('places','Места',counts(live,p=>p.place).map(([k,n])=>navBtn('place',k,I.pin,k,n)),6);
-  h+=section('tags','Што има на сликите',counts(live,p=>p.tags).map(([k,n])=>navBtn('tag',k,`<span class="sw" style="background:${colorOf(k)};border-radius:50%"></span>`,k,n)),8);
+  h+=section('tags','Што има на сликите',counts(live,p=>p.tags).map(([k,n])=>navBtn('tag',k,`<span class="sw" style="background:${colorOf(k)};border-radius:50%"></span>`,tagName(k),n)),10);
   h+=section('apps','Извор',counts(live,p=>p.app).map(([k,n])=>navBtn('app',k,I.src,k,n)),8);
   h+=section('years','Години',counts(live,p=>p.year).sort((a,b)=>b[0]-a[0]).map(([k,n])=>navBtn('year',k,I.cal,String(k),n)),6);
   h+=section('other','Друго',[navBtn('trash',null,I.trash,'Корпа',data.photos.filter(p=>p.trash).length),navBtn('dups',null,I.dup,'Дупликати',data.duplicates||0)],5);
@@ -455,6 +479,7 @@ function renderNav(){
   $('nav').querySelectorAll('[data-sec]').forEach(b=>b.onclick=()=>{state.closed[b.dataset.sec]=!state.closed[b.dataset.sec];store.set('closed',state.closed);renderNav()});
   $('nav').querySelectorAll('[data-more]').forEach(b=>b.onclick=()=>{state.more[b.dataset.more]=!state.more[b.dataset.more];store.set('more',state.more);renderNav()});
   const na=$('newalbum');if(na)na.onclick=()=>newAlbum();
+  const am=$('addmyplace');if(am)am.onclick=()=>myPlaceDialog();
   // storage
   const sp=live.filter(p=>p.kind!=='video').reduce((s,p)=>s+p.size,0),sv=live.filter(p=>p.kind==='video').reduce((s,p)=>s+p.size,0),tot=data.disk_total||1;
   $('storage').innerHTML=`<div class="eyebrow">Библиотека</div><div class="bar"><i style="width:${Math.max(.5,sp/tot*100)}%;background:var(--accent)"></i><i style="width:${sv/tot*100}%;background:var(--warn)"></i></div>
@@ -474,7 +499,7 @@ function renderNotices(){
   if(upload)n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Додавам слики…</b><div class="sub num">${upload.done} од ${upload.total} · нови ${upload.added} · веќе постоеја ${upload.dup}${upload.err?` · неуспешни ${upload.err}`:''}</div></div></div><div class="progress"><i style="width:${upload.total?Math.round(upload.done/upload.total*100):0}%"></i></div></div>`);
   if(s.state==='scanning')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Ги барам и средувам сликите…</b><div class="sub num">${s.total?`${s.scanned} од ${s.total} датотеки`:'Ги пребарувам папките'} · нови ${s.added} · дупликати ${s.duplicates}${s.skipped?` · ${s.skipped} чекаат (се копираат)`:''}</div></div></div><div class="progress"><i style="width:${s.total?Math.round(s.scanned/s.total*100):3}%"></i></div></div>`);
   const ai=s.ai||{};
-  if(ai.state==='not_downloaded'&&data.photos.length)n.push(`<div class="notice info"><div class="t"><div><b>Вклучи паметно препознавање</b><div class="sub">Сликите ќе се групираат по содржина: море, планини, луѓе, храна, кучиња, документи… Еднократно симнување од околу 155 MB. Сè работи на твојот компјутер, сликите не се праќаат никаде.</div></div></div><button class="btn sm primary" data-act="ai">Вклучи</button></div>`);
+  if(ai.state==='not_downloaded'&&data.photos.length)n.push(`<div class="notice info"><div class="t"><div><b>Вклучи паметно препознавање</b><div class="sub">Над 100 категории: море, планини, луѓе, деца, свадби, храна, кучиња, документи… и пребарување со зборови на македонски или англиски, на пр. „куче на плажа“. Еднократно симнување од околу 400 MB. Сè работи на твојот компјутер, сликите не се праќаат никаде.</div></div></div><button class="btn sm primary" data-act="ai">Вклучи</button></div>`);
   if(ai.state==='downloading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го симнувам моделот за препознавање…</b><div class="sub num">${Math.round(ai.progress*100)}% · ова се прави само еднаш</div></div></div><div class="progress"><i style="width:${Math.round(ai.progress*100)}%"></i></div></div>`);
   if(ai.state==='loading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го подготвувам препознавањето…</b><div class="sub">Првиот пат трае околу една минута.</div></div></div></div>`);
   if(ai.state==='ready'&&s.ai_pending>0&&s.state!=='scanning'){const tot=s.ai_pending+s.ai_done;n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Препознавам што има на сликите…</b><div class="sub num">Уште ${s.ai_pending} ${s.ai_pending===1?'слика':'слики'}. Може слободно да ја користиш апликацијата.</div></div></div><div class="progress"><i style="width:${tot?Math.round(s.ai_done/tot*100):0}%"></i></div></div>`)}
@@ -503,11 +528,13 @@ function render(){
   if(v==='kind')title=KINDS[state.key];
   if(v==='event'){const e=events.find(x=>x.id===state.key);title=e?e.title:'Настан';sub=e?e.range+' · ':''}
   if(v==='app')sub='Извор · ';
-  if(v==='tag')sub='Препознаено · ';
+  if(v==='tag'){sub='Препознаено · ';title=tagName(state.key)}
+  if(v==='myplace')sub='Мое место · ';
   if(state.q&&v==='all')title='Резултати';
+  const smart=state.q&&sem.q===state.q&&sem.scores.size;
   $('title').textContent=title;
   const sz=list.reduce((s,p)=>s+p.size,0);
-  $('subtitle').textContent=v==='trash'?`${plural(list.length,'ставка','ставки')} · во папката „Корпа“ додека не ги избришеш трајно`:`${sub}${plural(list.length,'датотека','датотеки')} · ${fmtSize(sz)}${state.q?` · пребарување „${state.q}“`:''}`;
+  $('subtitle').textContent=v==='trash'?`${plural(list.length,'ставка','ставки')} · во папката „Корпа“ додека не ги избришеш трајно`:`${sub}${plural(list.length,'датотека','датотеки')} · ${fmtSize(sz)}${state.q?` · пребарување „${state.q}“${smart?' · со паметно препознавање':''}`:''}`;
   $('sortbtn').textContent=state.sortDesc?'Најнови прво':'Најстари прво';
   renderChips();
   const wrap=$('groups');wrap.innerHTML='';
@@ -518,7 +545,8 @@ function render(){
     syncSel();return;
   }
   const groups=new Map();
-  for(const p of list){const k=`${p.year}-${p.d.getMonth()}`;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p)}
+  if(smart){groups.set('smart',list)}
+  else for(const p of list){const k=`${p.year}-${p.d.getMonth()}`;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p)}
   const queue=[...groups.values()];let pending=null;
   const sentinel=document.createElement('div');sentinel.className='sentinel';wrap.appendChild(sentinel);
   const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))drawMore()},{root:$('content'),rootMargin:'800px'});
@@ -526,13 +554,13 @@ function render(){
     let drawn=0;
     while((queue.length||pending)&&drawn<240){
       const arr=pending||queue.shift();pending=null;
-      const d=arr[0].d,key=`${arr[0].year}-${d.getMonth()}`;
+      const d=arr[0].d,key=smart?'smart':`${arr[0].year}-${d.getMonth()}`;
       let g=wrap.querySelector(`[data-g="${key}"]`);
       if(!g){
         const all=groups.get(key);
         const pl=counts(all,p=>p.place).slice(0,3).map(x=>x[0]).join(', ');
         g=document.createElement('section');g.className='group';g.dataset.g=key;
-        g.innerHTML=`<div class="group-h"><h3>${MONTHS[d.getMonth()]} ${d.getFullYear()}</h3><span class="num">${all.length}${pl?' · '+esc(pl):''}</span><button data-sel-group>Избери ги сите</button></div><div class="grid"></div>`;
+        g.innerHTML=`<div class="group-h"><h3>${smart?'Најдобри совпаѓања':MONTHS[d.getMonth()]+' '+d.getFullYear()}</h3><span class="num">${all.length}${pl?' · '+esc(pl):''}</span><button data-sel-group>Избери ги сите</button></div><div class="grid"></div>`;
         g.querySelector('[data-sel-group]').onclick=()=>{state.selecting=true;all.forEach(p=>state.sel.add(p.id));syncSel()};
         wrap.insertBefore(g,sentinel);
       }
@@ -555,7 +583,7 @@ function renderChips(){
   }
   if(!['place'].includes(state.view)){for(const [t,n] of counts(base,p=>p.place).slice(0,4))if(n<base.length)chips.push(['place',t,n])}
   if(chips.length<2&&!state.chip){$('chips').innerHTML='';return}
-  $('chips').innerHTML=chips.map(([t,v,n])=>{const on=state.chip&&state.chip[0]===t&&state.chip[1]===v;const dot=t==='tag'?colorOf(v):t==='place'?'#2A9FD0':'#8A93A6';return `<button class="chip" data-t="${t}" data-v="${esc(v)}" aria-pressed="${!!on}"><i style="background:${dot}"></i>${esc(t==='kind'?KINDS[v]:v)} <small class="num">${n}</small></button>`}).join('');
+  $('chips').innerHTML=chips.map(([t,v,n])=>{const on=state.chip&&state.chip[0]===t&&state.chip[1]===v;const dot=t==='tag'?colorOf(v):t==='place'?'#2A9FD0':'#8A93A6';return `<button class="chip" data-t="${t}" data-v="${esc(v)}" aria-pressed="${!!on}"><i style="background:${dot}"></i>${esc(t==='kind'?KINDS[v]:t==='tag'?tagName(v):v)} <small class="num">${n}</small></button>`}).join('');
   $('chips').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{const c=[b.dataset.t,b.dataset.v];state.chip=state.chip&&state.chip[0]===c[0]&&state.chip[1]===c[1]?null:c;render()});
 }
 function tile(p,list){
@@ -564,7 +592,7 @@ function tile(p,list){
   el.innerHTML=`<img src="/thumb/${p.id}.jpg?r=${p.rot||0}" loading="lazy" decoding="async" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'ph',textContent:'${ext}'}))">
     <button class="ck" aria-label="Избери" data-ck><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg></button>
     <button class="fav" aria-label="Омилена" data-fav><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg></button>
-    <div class="meta"><span>${esc(p.place||(p.tags||[])[0]||p.name)}</span><span class="num">${p.d.getDate()}.${p.d.getMonth()+1}.</span></div>
+    <div class="meta"><span>${esc(p.myplace||p.place||tagName((p.tags||[])[0]||'')||p.name)}</span><span class="num">${p.d.getDate()}.${p.d.getMonth()+1}.</span></div>
     ${p.kind==='video'?'<span class="badge">▶ ВИДЕО</span>':p.kind==='screenshot'?'<span class="badge">СКРИНШОТ</span>':''}`;
   el.onclick=async e=>{
     if(e.target.closest('[data-fav]')){e.stopPropagation();p.fav=p.fav?0:1;el.classList.toggle('isfav',!!p.fav);await api(`/api/photo/${p.id}`,{fav:!!p.fav});state.version++;renderNav();return}
@@ -623,6 +651,8 @@ $('a-album').onchange=async e=>{const v=e.target.value;e.target.value='';if(!v)r
   clearSel();await load()};
 $('a-tag').onclick=async()=>{const t=await promptBox('Додај ознака','пр. Одмор, Баба, Работа',allTags());if(!t)return;await api('/api/photos/update',{ids:[...state.sel],add_tag:t});toast(`Ознаката „${t}“ е додадена`);clearSel();await load()};
 $('a-date').onclick=async()=>{const first=byId.get([...state.sel][0]);const v=await dateBox(first.d);if(!v)return;await api('/api/photos/update',{ids:[...state.sel],taken:v});toast('Датумот е сменет и сликите се преместени');clearSel();await load()};
+let TAG_EN={},TAG_MK={};
+const tagName=t=>cfg.tag_lang==='en'?(TAG_EN[t]||t):t;
 const allTags=()=>counts(data.photos,p=>p.tags).map(x=>x[0]);
 
 // ===================================================================== lightbox
@@ -650,14 +680,14 @@ function showLb(){
     </div>
     <dl class="row">
       <dt>Датум</dt><dd class="num" id="lb-date">${fmtDate(p.d)}<button id="lb-editdate">измени</button></dd>
-      <dt>Место</dt><dd>${p.place?esc(p.place)+(p.country?', '+esc(p.country):''):p.lat!=null?'GPS без познато место':'—'}</dd>
+      <dt>Место</dt><dd>${p.myplace?'<b>'+esc(p.myplace)+'</b>'+(p.place?' · ':''):''}${p.place?esc(p.place)+(p.country?', '+esc(p.country):''):(!p.myplace&&p.lat!=null?'GPS без познато место':(!p.myplace?'—':''))}${p.lat!=null?'<button id="lb-setplace">постави како Дома, Работа…</button>':''}</dd>
       <dt>Извор</dt><dd>${esc(p.app||'—')}</dd>
       <dt>Камера</dt><dd>${esc(p.cam||'—')}</dd>
       <dt>Димензии</dt><dd class="num">${p.w?((p.rot||0)%180?`${p.h} × ${p.w}`:`${p.w} × ${p.h}`):'—'}</dd>
       <dt>Големина</dt><dd class="num">${fmtSize(p.size)}</dd>
       <dt>Папка</dt><dd>${esc(p.path.split('/').slice(0,-1).join(' › '))}</dd>
     </dl>
-    <div><div class="eyebrow">Ознаки</div><div class="tags" id="lb-tags">${(p.tags||[]).map(t=>`<span class="tag ${p.ai_done===1?'ai':''}">${esc(t)}<button data-rm="${esc(t)}" title="Тргни ја ознаката">×</button></span>`).join('')}<input class="tagin" id="lb-tagin" placeholder="+ ознака" list="taglist"><datalist id="taglist">${allTags().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div></div>
+    <div><div class="eyebrow">Ознаки</div><div class="tags" id="lb-tags">${(p.tags||[]).map(t=>`<span class="tag ${p.ai_done===1?'ai':''}" title="${esc(TAG_EN[t]||'')}">${esc(tagName(t))}<button data-rm="${esc(t)}" title="Тргни ја ознаката">×</button></span>`).join('')}<input class="tagin" id="lb-tagin" placeholder="+ ознака" list="taglist"><datalist id="taglist">${allTags().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div></div>
     <div><div class="eyebrow">Албуми</div><div class="tags">${albums.map(a=>`<span class="tag">${esc(a.name)}<button data-ral="${a.id}" title="Тргни од албумот">×</button></span>`).join('')}<select id="lb-album" class="tagin" style="width:auto"><option value="">+ во албум</option>${data.albums.filter(a=>!p.albums.includes(a.id)).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div></div>
     ${p.kind!=='video'?'<div><div class="eyebrow">Хистограм</div><canvas class="hist" id="lb-hist" width="300" height="56"></canvas></div>':''}
     ${p.lat!=null?`<div><div class="eyebrow">Мапа</div><iframe loading="lazy" title="Мапа" src="https://www.openstreetmap.org/export/embed.html?bbox=${p.lon-pad},${p.lat-pad},${p.lon+pad},${p.lat+pad}&layer=mapnik&marker=${p.lat},${p.lon}"></iframe><a href="${loc}" target="_blank" rel="noopener" style="font-size:12px">Отвори поголема мапа</a></div>`:''}
@@ -665,6 +695,7 @@ function showLb(){
   $('lb-fav').onclick=async()=>{p.fav=p.fav?0:1;await api(`/api/photo/${p.id}`,{fav:!!p.fav});showLb()};
   const rot=$('lb-rot');if(rot)rot.onclick=async()=>{await api(`/api/photo/${p.id}`,{rotate:90});p.rot=((p.rot||0)+90)%360;showLb();dirty=true};
   $('lb-open').onclick=()=>api(`/api/open/${p.id}`,{});
+  const sp=$('lb-setplace');if(sp)sp.onclick=()=>myPlaceDialog({lat:p.lat,lon:p.lon,label:p.place||''});
   $('lb-reveal').onclick=()=>api(`/api/reveal/${p.id}`,{});
   $('lb-del').onclick=async()=>{await api(`/api/photo/${p.id}`,{trash:!p.trash});toast(p.trash?'Сликата е вратена':'Преместена во Корпа');list.splice(idx,1);dirty=true;if(!list.length)return closeLb();state.lb.idx=Math.min(idx,list.length-1);showLb()};
   $('lb-editdate').onclick=async()=>{const v=await dateBox(p.d);if(!v)return;await api(`/api/photo/${p.id}`,{taken:v});p.d=new Date(v);p.year=p.d.getFullYear();dirty=true;showLb();toast('Датумот е сменет')};
@@ -789,7 +820,13 @@ async function settings(){
       <label class="choice"><input type="radio" name="st-mode" value="move" ${cfg.mode==='move'?'checked':''}><span><b>Премести</b><small>Оригиналите се преместуваат во библиотеката.</small></span></label></div>
       <label class="muted">Провери за нови слики на секои <input type="number" id="st-int" min="10" max="3600" value="${cfg.watch_seconds}" style="width:90px"> секунди</label></div>
     <div class="setsec"><h4>Паметно препознавање</h4><p class="muted" style="margin:0">${esc(aiTxt)}</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${ai.state==='ready'?'<button class="btn sm" id="st-re">Анализирај ги сите повторно</button>':ai.state!=='missing_deps'&&ai.state!=='downloading'&&ai.state!=='loading'?'<button class="btn sm primary" id="st-ai">Вклучи</button>':''}</div></div>
+      <div class="flist">${(cfg.models||[]).map(m=>`<label class="choice"><input type="radio" name="st-model" value="${m.id}" ${cfg.model===m.id?'checked':''}><span><b>${esc(m.name)}${m.id==='siglip2'?' · препорачано':''}</b><small>${esc(m.about)}</small></span></label>`).join('')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${ai.state==='ready'?'<button class="btn sm" id="st-re">Анализирај ги сите повторно</button>':ai.state!=='missing_deps'&&ai.state!=='downloading'&&ai.state!=='loading'?'<button class="btn sm primary" id="st-ai">Вклучи</button>':''}</div>
+      <div><div class="eyebrow" style="margin-bottom:6px">Јазик на ознаките</div><div class="seg" style="display:inline-flex;width:auto"><button style="width:auto;padding:0 12px" data-tl="mk" aria-pressed="${cfg.tag_lang!=='en'}">Македонски</button><button style="width:auto;padding:0 12px" data-tl="en" aria-pressed="${cfg.tag_lang==='en'}">English</button></div>
+      <p class="muted" style="margin:6px 0 0;font-size:12.5px">Пребарувањето работи на двата јазика без разлика на изборот.</p></div></div>
+    <div class="setsec"><h4>Мои места</h4><p class="muted" style="margin:0">Сликите снимени во близина на овие места се означуваат со нивното име, на пример Дома или Работа. Работи за сликите со GPS локација.</p>
+      <div class="flist">${(cfg.my_places||[]).map((m,i)=>`<div class="fitem"><span class="fp"><b>${esc(m.name)}</b><small class="num">${m.lat.toFixed(5)}, ${m.lon.toFixed(5)} · радиус ${m.radius>=1000?(m.radius/1000)+' km':m.radius+' m'}</small></span><button class="btn sm" data-edplace="${i}">Измени</button><button class="btn sm danger" data-rmplace="${i}">Тргни</button></div>`).join('')||'<div class="muted">Сè уште нема поставени места.</div>'}</div>
+      <div><button class="btn sm" id="st-addplace">${I.plus.replace('<svg','<svg width="15" height="15"')} Додај место</button></div></div>
     ${cfg.windows?`<div class="setsec"><h4>Windows</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="st-lnk">Направи икона на Desktop</button></div>
       <label class="choice"><input type="checkbox" id="st-auto" ${cfg.autostart?'checked':''}><span><b>Стартувај со Windows</b><small>Работи тивко во позадина и ги средува новите слики, без да отвора прозорец.</small></span></label></div>`:''}
     <div class="setsec"><h4>За апликацијата</h4><p class="muted" style="margin:0">Верзија ${esc(cfg.version)} · HEIC ${cfg.heif?'да':'не'} · видео сликички ${cfg.ffmpeg?'да':'не'}</p>
@@ -803,6 +840,11 @@ async function settings(){
   c.querySelector('#st-lib').onclick=async()=>{if(!await confirmBox('Нова библиотека почнува празна, а постојната останува на дискот. Продолжи?','Продолжи'))return settings();const p=await pickFolder('Избери нова локација за библиотеката');if(p){await save({library:p});await load()}settings()};
   c.querySelectorAll('[name=st-mode]').forEach(r=>r.onchange=()=>save({mode:r.value}));
   c.querySelector('#st-int').onchange=e=>save({watch_seconds:+e.target.value||30});
+  c.querySelectorAll('[name=st-model]').forEach(r=>r.onchange=async()=>{if(!await confirmBox('Сликите ќе се анализираат одново со новиот модел. Моделот се симнува еднаш. Продолжи?','Смени модел')){settings();return}await api('/api/ai/model',{model:r.value});toast('Моделот е сменет. Почнува симнувањето и анализата.');closeModal();refreshStatus()});
+  c.querySelectorAll('[data-tl]').forEach(b=>b.onclick=async()=>{await save({tag_lang:b.dataset.tl});render();settings()});
+  c.querySelectorAll('[data-rmplace]').forEach(b=>b.onclick=async()=>{const mp=[...cfg.my_places];mp.splice(+b.dataset.rmplace,1);await save({my_places:mp});await load();settings()});
+  c.querySelectorAll('[data-edplace]').forEach(b=>b.onclick=()=>myPlaceDialog({index:+b.dataset.edplace}));
+  c.querySelector('#st-addplace').onclick=()=>myPlaceDialog();
   const re=c.querySelector('#st-re');if(re)re.onclick=async()=>{await api('/api/ai/reanalyze',{});toast('Сликите повторно се анализираат');closeModal();refreshStatus()};
   const ae=c.querySelector('#st-ai');if(ae)ae.onclick=async()=>{await api('/api/ai/enable',{});toast('Почнува симнувањето');closeModal();refreshStatus()};
   const ln=c.querySelector('#st-lnk');if(ln)ln.onclick=async()=>{const r=await api('/api/system/shortcut',{});toast(r.result==='ok'?'Иконата „Фотоархива“ е на Desktop':r.result)};
@@ -811,6 +853,45 @@ async function settings(){
   c.querySelector('#st-close').onclick=closeModal;
 }
 $('setbtn').onclick=settings;
+
+// ===================================================================== my places
+const RADII=[[100,'100 m'],[300,'300 m'],[500,'500 m'],[1000,'1 km'],[3000,'3 km'],[10000,'10 km']];
+async function myPlaceDialog(opt={}){
+  cfg=await api('/api/config');
+  const editing=opt.index!=null?cfg.my_places[opt.index]:null;
+  let pt=editing?{lat:editing.lat,lon:editing.lon,label:''}:(opt.lat!=null?{lat:opt.lat,lon:opt.lon,label:opt.label||''}:null);
+  let name=editing?editing.name:'',radius=editing?editing.radius:300;
+  const c=modal(`<h3>${editing?'Измени место':'Постави мое место'}</h3>
+    <div><div class="eyebrow" style="margin-bottom:6px">Име</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">${['Дома','Работа','Викендица','Кај родители','Училиште'].map(n=>`<button class="chip" data-qn="${n}">${n}</button>`).join('')}</div>
+      <input type="text" id="mp-name" placeholder="на пр. Дома" value="${esc(name)}"></div>
+    <div><div class="eyebrow" style="margin-bottom:6px">Локација</div>
+      <div style="display:flex;gap:8px"><input type="text" id="mp-q" placeholder="Пребарај адреса, пр. Партизанска 10, Скопје" style="flex:1"><button class="btn" id="mp-find">Најди</button></div>
+      <div class="flist" id="mp-res" style="margin-top:8px"></div>
+      <p class="muted" style="margin:6px 0 0;font-size:12.5px">Совет: отвори слика снимена на тоа место и кликни „постави како Дома, Работа…“ кај Место.</p></div>
+    <div id="mp-map"></div>
+    <div><div class="eyebrow" style="margin-bottom:6px">Колку широко</div><select id="mp-rad">${RADII.map(([v,l])=>`<option value="${v}" ${v==radius?'selected':''}>${l}</option>`).join('')}</select></div>
+    <div class="foot"><button class="btn" id="mp-c">Откажи</button><button class="btn primary" id="mp-ok">Зачувај</button></div>`,true);
+  const drawMap=()=>{const m=c.querySelector('#mp-map');if(!pt){m.innerHTML='<div class="muted">Сè уште не е избрана локација.</div>';return}const d=.006;
+    m.innerHTML=`<div class="fitem"><span class="fp"><b>Избрана локација</b><small class="num">${pt.label?esc(pt.label)+' · ':''}${pt.lat.toFixed(5)}, ${pt.lon.toFixed(5)}</small></span></div><iframe title="Мапа" style="width:100%;height:190px;border:0;border-radius:10px;margin-top:6px" src="https://www.openstreetmap.org/export/embed.html?bbox=${pt.lon-d},${pt.lat-d},${pt.lon+d},${pt.lat+d}&layer=mapnik&marker=${pt.lat},${pt.lon}"></iframe>`};
+  drawMap();
+  c.querySelectorAll('[data-qn]').forEach(b=>b.onclick=()=>{c.querySelector('#mp-name').value=b.dataset.qn});
+  const find=async()=>{const q=c.querySelector('#mp-q').value.trim();if(!q)return;const res=c.querySelector('#mp-res');res.innerHTML='<div class="fitem"><span class="spin"></span><span class="muted">Барам…</span></div>';
+    try{const r=await api('/api/geocode?q='+encodeURIComponent(q));
+      res.innerHTML=r.length?r.map((x,i)=>`<button class="fitem" data-gi="${i}" style="text-align:left"><span class="fp"><b>${esc(x.name.split(',')[0])}</b><small>${esc(x.name)}</small></span></button>`).join(''):'<div class="muted">Не е најдено. Пробај со град, на пр. „Партизанска, Скопје“.</div>';
+      res.querySelectorAll('[data-gi]').forEach(b=>b.onclick=()=>{const x=r[+b.dataset.gi];pt={lat:x.lat,lon:x.lon,label:x.name.split(',').slice(0,2).join(',')};res.innerHTML='';drawMap()})}
+    catch(e){res.innerHTML=`<div class="muted">${esc(e.message)}. Провери интернет.</div>`}};
+  c.querySelector('#mp-find').onclick=find;c.querySelector('#mp-q').onkeydown=e=>{if(e.key==='Enter')find()};
+  c.querySelector('#mp-c').onclick=closeModal;
+  c.querySelector('#mp-ok').onclick=async()=>{
+    const n=c.querySelector('#mp-name').value.trim();if(!n){toast('Внеси име, на пр. Дома');return}if(!pt){toast('Избери локација');return}
+    const mp=[...(cfg.my_places||[])];const item={name:n,lat:pt.lat,lon:pt.lon,radius:+c.querySelector('#mp-rad').value};
+    if(editing)mp[opt.index]=item;else{const i=mp.findIndex(m=>m.name===n);if(i>=0)mp[i]=item;else mp.push(item)}
+    cfg=await api('/api/config',{my_places:mp});closeModal();await load();
+    const cnt=data.photos.filter(p=>p.myplace===n&&!p.trash).length;toast(`„${n}“ е зачувано · ${plural(cnt,'слика','слики')} снимени таму`);
+    if(state.lb){dirty=true}
+  };
+}
 
 // ===================================================================== import / upload
 $('importbtn').onclick=e=>{e.stopPropagation();$('importmenu').hidden=!$('importmenu').hidden};
@@ -857,7 +938,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Delete'&&state.sel.size&&!typing)$('a-del').click();
   if((e.ctrlKey||e.metaKey)&&e.key==='a'&&!typing){e.preventDefault();visible().forEach(p=>state.sel.add(p.id));state.selecting=true;syncSel()}
 });
-let qt;$('q').oninput=e=>{clearTimeout(qt);qt=setTimeout(()=>{const q=e.target.value.trim();if(q&&!state.q&&state.view!=='trash'){state.view='all';state.key=null;state.chip=null}state.q=q;render()},160)};
+let qt;$('q').oninput=e=>{clearTimeout(qt);qt=setTimeout(()=>{const q=e.target.value.trim();if(q&&!state.q&&state.view!=='trash'){state.view='all';state.key=null;state.chip=null}state.q=q;render();semanticSearch()},160)};
 $('sortbtn').onclick=()=>{state.sortDesc=!state.sortDesc;render()};
 const sizes={'sz-s':'110px','sz-m':'168px','sz-l':'250px'};
 for(const id in sizes)$(id).onclick=()=>{if(innerWidth>900)document.documentElement.style.setProperty('--tile',sizes[id]);for(const k in sizes)$(k).setAttribute('aria-pressed',k===id);store.set('tile',id)};
@@ -884,6 +965,7 @@ async function poll(){
 }
 (async()=>{
   cfg=await api('/api/config');status=await api('/api/status');
+  try{for(const l of await api('/api/labels')){TAG_EN[l.mk]=l.en;TAG_MK[l.en.toLowerCase()]=l.mk}}catch(_){}
   await load();
   if(!cfg.configured)onboarding();
   poll();
