@@ -691,6 +691,7 @@ function showLb(){
     <div><div class="eyebrow">Албуми</div><div class="tags">${albums.map(a=>`<span class="tag">${esc(a.name)}<button data-ral="${a.id}" title="Тргни од албумот">×</button></span>`).join('')}<select id="lb-album" class="tagin" style="width:auto"><option value="">+ во албум</option>${data.albums.filter(a=>!p.albums.includes(a.id)).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div></div>
     ${p.kind!=='video'?'<div><div class="eyebrow">Хистограм</div><canvas class="hist" id="lb-hist" width="300" height="56"></canvas></div>':''}
     ${p.lat!=null?`<div><div class="eyebrow">Мапа</div><iframe loading="lazy" title="Мапа" src="https://www.openstreetmap.org/export/embed.html?bbox=${p.lon-pad},${p.lat-pad},${p.lon+pad},${p.lat+pad}&layer=mapnik&marker=${p.lat},${p.lon}"></iframe><a href="${loc}" target="_blank" rel="noopener" style="font-size:12px">Отвори поголема мапа</a></div>`:''}
+    <div id="lb-hist-wrap"><div class="eyebrow">Историја</div><div id="lb-history" class="muted" style="font-size:13px">…</div></div>
     <div id="lb-simwrap" hidden><div class="eyebrow">Слични слики</div><div class="sim" id="lb-sim"></div></div>`;
   $('lb-fav').onclick=async()=>{p.fav=p.fav?0:1;await api(`/api/photo/${p.id}`,{fav:!!p.fav});showLb()};
   const rot=$('lb-rot');if(rot)rot.onclick=async()=>{await api(`/api/photo/${p.id}`,{rotate:90});p.rot=((p.rot||0)+90)%360;showLb();dirty=true};
@@ -704,6 +705,7 @@ function showLb(){
   $('lb-tagin').onkeydown=async e=>{if(e.key==='Enter'){const t=e.target.value.trim();if(!t)return;await api(`/api/photo/${p.id}`,{add_tag:t});p.tags=[...(p.tags||[]).filter(x=>x!==t),t];p._s=null;dirty=true;showLb();setTimeout(()=>$('lb-tagin')&&$('lb-tagin').focus(),0)}e.stopPropagation()};
   $('lb-album').onchange=async e=>{const a=+e.target.value;if(!a)return;await api(`/api/albums/${a}/add`,{ids:[p.id]});p.albums.push(a);dirty=true;showLb()};
   if(p.kind!=='video')drawHist(p);
+  loadHistory(p);
   if((status.ai||{}).state==='ready'&&p.ai_done===1)api(`/api/similar/${p.id}`).then(ids=>{if(!state.lb||state.lb.list[state.lb.idx]!==p||!ids.length)return;$('lb-simwrap').hidden=false;$('lb-sim').innerHTML=ids.slice(0,8).map(id=>`<img src="/thumb/${id}.jpg" data-sim="${id}" alt="" loading="lazy">`).join('');$('lb-sim').querySelectorAll('img').forEach(im=>im.onclick=()=>{const q=byId.get(+im.dataset.sim);if(!q)return;const i=state.lb.list.indexOf(q);if(i>=0)state.lb.idx=i;else{state.lb.list=[q];state.lb.idx=0}showLb()})}).catch(()=>{});
 }
 function drawHist(p){
@@ -715,6 +717,24 @@ function drawHist(p){
     const max=Math.max(...bins.flat()),g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);g.globalCompositeOperation='lighter';
     ['rgba(240,90,80,.75)','rgba(80,200,120,.75)','rgba(90,140,255,.75)'].forEach((col,k)=>{g.fillStyle=col;g.beginPath();g.moveTo(0,c.height);bins[k].forEach((v,i)=>g.lineTo(i/63*c.width,c.height-4-v/max*(c.height-8)));g.lineTo(c.width,c.height);g.fill()});
   };im.src=`/thumb/${p.id}.jpg?r=${p.rot||0}`;
+}
+const HOW={copy:'Копирана',move:'Преместена',upload:'Увезена преку „Додај слики“'};
+async function loadHistory(p){
+  let h;try{h=await api(`/api/history/${p.id}`)}catch(_){return}
+  if(!state.lb||state.lb.list[state.lb.idx]!==p)return;
+  const el=$('lb-history');if(!el)return;
+  const ad=h.added?new Date(h.added):null;
+  let html=`<dl class="row" style="margin-bottom:8px">
+    <dt>Начин</dt><dd>${esc(HOW[h.how]||h.how)}</dd>
+    ${ad?`<dt>Додадена</dt><dd class="num">${fmtDate(ad)}</dd>`:''}
+    ${h.orig?`<dt>Оригинал</dt><dd>${esc(h.orig)}${h.how==='move'?'<br><small style="color:#7D8494">преместена, на старото место веќе ја нема</small>':!h.orig_exists?'<br><small style="color:#7D8494">оригиналот повеќе не е таму</small>':''}</dd>`:''}
+    ${h.upload_name?`<dt>Име при увоз</dt><dd>${esc(h.upload_name)}</dd>`:''}
+    <dt>Сега</dt><dd>${esc(h.now)}</dd></dl>`;
+  if(h.orig)html+=`<button class="btn sm" id="lb-origdir" ${h.orig_dir_exists?'':'disabled title="Папката повеќе не постои"'}>Отвори ја оригиналната папка</button>`;
+  if(h.copies_total)html+=`<div style="margin-top:10px"><div class="eyebrow">Истата слика е пронајдена и во (${h.copies_total})</div>${h.copies.map(c=>`<div style="display:flex;gap:6px;align-items:center;margin:4px 0"><span style="flex:1;overflow-wrap:anywhere;color:#C8CDD8">${esc(c.path)}</span>${c.exists?`<button class="btn sm" data-op="${esc(c.path)}">Отвори</button>`:''}</div>`).join('')}</div>`;
+  el.innerHTML=html;el.style.color='';
+  const od=$('lb-origdir');if(od)od.onclick=async()=>{try{await api('/api/open-path',{path:h.orig})}catch(e){toast(e.message)}};
+  el.querySelectorAll('[data-op]').forEach(b=>b.onclick=async()=>{try{await api('/api/open-path',{path:b.dataset.op})}catch(e){toast(e.message)}});
 }
 let dirty=false;
 async function closeLb(){$('lb').hidden=true;state.lb=null;if(dirty){dirty=false;await load()}}
@@ -830,7 +850,8 @@ async function settings(){
     ${cfg.windows?`<div class="setsec"><h4>Windows</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="st-lnk">Направи икона на Desktop</button></div>
       <label class="choice"><input type="checkbox" id="st-auto" ${cfg.autostart?'checked':''}><span><b>Стартувај со Windows</b><small>Работи тивко во позадина и ги средува новите слики, без да отвора прозорец.</small></span></label></div>`:''}
     <div class="setsec"><h4>За апликацијата</h4><p class="muted" style="margin:0">Верзија ${esc(cfg.version)} · HEIC ${cfg.heif?'да':'не'} · видео сликички ${cfg.ffmpeg?'да':'не'}</p>
-      <div><button class="btn sm danger" id="st-quit">Исклучи ја апликацијата</button></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="st-quit">Исклучи ја апликацијата</button>${cfg.can_uninstall?'<button class="btn sm danger" id="st-uninst">Деинсталирај ја Фотоархива</button>':''}</div>
+      ${cfg.can_uninstall?'<p class="muted" style="margin:0;font-size:12.5px">Деинсталацијата ја брише програмата. Твоите слики и средената библиотека остануваат.</p>':''}</div>
     <div class="foot"><button class="btn primary" id="st-close">Готово</button></div>`,true);
   const save=async patch=>{cfg=await api('/api/config',patch)};
   c.querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{await save({sources:cfg.sources.filter(s=>s!==b.dataset.rm)});toast('Папката повеќе не се следи. Веќе средените слики остануваат.');settings()});
@@ -849,6 +870,7 @@ async function settings(){
   const ae=c.querySelector('#st-ai');if(ae)ae.onclick=async()=>{await api('/api/ai/enable',{});toast('Почнува симнувањето');closeModal();refreshStatus()};
   const ln=c.querySelector('#st-lnk');if(ln)ln.onclick=async()=>{const r=await api('/api/system/shortcut',{});toast(r.result==='ok'?'Иконата „Фотоархива“ е на Desktop':r.result)};
   const au=c.querySelector('#st-auto');if(au)au.onchange=async e=>{const r=await api('/api/system/autostart',{on:e.target.checked});toast(r.autostart?'Ќе се стартува со Windows':'Нема да се стартува со Windows')};
+  const un=c.querySelector('#st-uninst');if(un)un.onclick=async()=>{if(!await confirmBox('Да се деинсталира Фотоархива? Сликите и библиотеката нема да се избришат.','Деинсталирај'))return;await api('/api/system/uninstall',{}).catch(()=>{});document.body.innerHTML='<div style="display:grid;place-items:center;height:100%;font-size:18px;text-align:center;padding:20px">Се отвора деинсталацијата на Фотоархива.<br>Може да го затвориш овој прозорец.</div>'};
   c.querySelector('#st-quit').onclick=async()=>{if(!await confirmBox('Да се исклучи Фотоархива? Новите слики нема да се средуваат додека повторно не ја стартуваш.','Исклучи'))return;await api('/api/quit',{}).catch(()=>{});document.body.innerHTML='<div style="display:grid;place-items:center;height:100%;font-size:18px">Фотоархива е исклучена. Може да го затвориш прозорецот.</div>'};
   c.querySelector('#st-close').onclick=closeModal;
 }

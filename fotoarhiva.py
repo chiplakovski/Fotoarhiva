@@ -46,7 +46,7 @@ from places import Places  # noqa: E402
 from ai import AI, MODELS, DEFAULT_MODEL, LABELS, MK2EN, labels_public  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.1"
+VERSION = "2.1.1"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -274,7 +274,7 @@ class Library:
             """)
             cols = {r["name"] for r in self.db.execute("PRAGMA table_info(photos)")}
             for c, t in (("app", "TEXT"), ("orig", "TEXT"), ("place", "TEXT"), ("country", "TEXT"),
-                         ("rot", "INTEGER DEFAULT 0"), ("ai_done", "INTEGER DEFAULT 0")):
+                         ("rot", "INTEGER DEFAULT 0"), ("ai_done", "INTEGER DEFAULT 0"), ("how", "TEXT")):
                 if c not in cols:
                     self.db.execute(f"ALTER TABLE photos ADD COLUMN {c} {t}")
             try:
@@ -481,10 +481,11 @@ class Library:
             shutil.copy2(str(src), str(dest))
         with self.db_lock:
             cur = self.db.execute(
-                "INSERT INTO photos(path,name,hash,taken,size,w,h,cam,kind,lat,lon,source,added,app,orig,place,country,ai_done) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO photos(path,name,hash,taken,size,w,h,cam,kind,lat,lon,source,added,app,orig,place,country,ai_done,how) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (self.rel(dest), dest.name, h, taken.isoformat(timespec="seconds"), st.st_size, w, h_, cam, kind, lat, lon,
-                 root_src, datetime.now().isoformat(timespec="seconds"), app, orig, place, country, 2 if kind == "video" else 0))
+                 root_src, datetime.now().isoformat(timespec="seconds"), app, orig, place, country, 2 if kind == "video" else 0,
+                 "upload" if not record_seen else mode))
             pid = cur.lastrowid
             if record_seen:
                 self.db.execute("INSERT OR REPLACE INTO seen VALUES(?,?,?,?)", (str(src), st.st_mtime, "added", pid))
@@ -754,6 +755,24 @@ class Library:
                 im.convert("RGB").save(out, "JPEG", quality=88)
         return out
 
+    def history(self, pid):
+        """Од каде дошла сликата: оригинална локација, начин, датум на додавање и други копии."""
+        with self.db_lock:
+            p = self.db.execute("SELECT id,name,path,orig,source,added,how FROM photos WHERE id=?", (pid,)).fetchone()
+            if not p:
+                return None
+            copies = [r["path"] for r in self.db.execute(
+                "SELECT path FROM seen WHERE dup_of=? AND result='duplicate' ORDER BY path", (pid,))]
+        how = p["how"] or ("upload" if p["source"] == "Увезени" else self.cfg.get("mode", "copy"))
+        orig = p["orig"] or ""
+        has_path = how != "upload" and (os.sep in orig or "/" in orig or "\\" in orig)
+        return {"orig": orig if has_path else "", "upload_name": orig if not has_path else "", "how": how,
+                "added": p["added"], "root": p["source"] if p["source"] != "Увезени" else "",
+                "orig_exists": bool(has_path and Path(orig).exists()),
+                "orig_dir_exists": bool(has_path and Path(orig).parent.exists()),
+                "copies": [{"path": c, "exists": Path(c).exists()} for c in copies[:50]], "copies_total": len(copies),
+                "now": self.rel(self.abs(p["path"]))}
+
     def photo_path(self, pid):
         with self.db_lock:
             p = self.db.execute("SELECT path FROM photos WHERE id=?", (pid,)).fetchone()
@@ -913,6 +932,11 @@ def create_lnk(lnk: Path, args=""):
         raise RuntimeError(r.stderr.strip()[:300])
 
 
+def uninstaller():
+    u = APP_DIR.parent / "Uninstall.exe"
+    return u if IS_WIN and u.exists() else None
+
+
 def startup_lnk():
     return win_folder("Startup") / "Фотоархива.lnk"
 
@@ -981,7 +1005,7 @@ class App:
                 "watch_seconds": self.cfg["watch_seconds"], "configured": self.cfg["configured"], "ai": self.cfg.get("ai", True),
                 "version": VERSION, "windows": IS_WIN, "heif": HEIF, "ffmpeg": bool(FFMPEG), "autostart": self._autostart,
                 "log": str(LOG_PATH), "model": self.ai.model_id, "my_places": self.cfg.get("my_places", []),
-                "tag_lang": self.cfg.get("tag_lang", "mk"),
+                "tag_lang": self.cfg.get("tag_lang", "mk"), "can_uninstall": uninstaller() is not None,
                 "models": [{"id": k, "name": v["name"], "name_en": v["name_en"], "about": v["about"], "multilingual": v["multilingual"]} for k, v in MODELS.items()]}
 
     def update_config(self, data):
@@ -1171,6 +1195,10 @@ def make_handler(app: App):
                 except Exception as e:
                     print("Geocode:", e)
                     self.send_json({"error": "Пребарувањето адреса не успеа"}, 502)
+            elif path.startswith("/api/history/"):
+                pid = path.rsplit("/", 1)[1]
+                h = lib.history(int(pid)) if pid.isdigit() else None
+                self.send_json(h or {"error": "нема"}, 200 if h else 404)
             elif path.startswith("/api/similar/"):
                 pid = path.rsplit("/", 1)[1]
                 self.send_json(lib.similar(int(pid)) if pid.isdigit() else [])
@@ -1255,6 +1283,23 @@ def make_handler(app: App):
                 elif parts[:2] == ["api", "albums"] and len(parts) == 4 and parts[2].isdigit():
                     lib.album_op(int(parts[2]), parts[3], ids, str(data.get("name", "")).strip()[:80])
                     self.send_json({"ok": True})
+                elif path == "/api/open-path":
+                    target = Path(str(data.get("path", "")))
+                    # дозволени се само патеки што ги знае базата (оригинали и копии), не произволни
+                    with lib.db_lock:
+                        known = lib.db.execute("SELECT 1 FROM photos WHERE orig=? UNION SELECT 1 FROM seen WHERE path=?",
+                                               (str(target), str(target))).fetchone()
+                    if not known:
+                        self.send_json({"error": "непозната патека"}, 400)
+                        return
+                    if target.exists():
+                        open_path(target, select=True)
+                    elif target.parent.exists():
+                        open_path(target.parent)
+                    else:
+                        self.send_json({"error": "Оригиналната папка повеќе не постои"}, 404)
+                        return
+                    self.send_json({"ok": True})
                 elif parts[:2] == ["api", "reveal"] and len(parts) == 3 and parts[2].isdigit():
                     f = lib.photo_path(int(parts[2]))
                     if f:
@@ -1283,6 +1328,14 @@ def make_handler(app: App):
                     r = set_autostart(bool(data.get("on")))
                     app._autostart = autostart_on()
                     self.send_json({"result": r, "autostart": app._autostart})
+                elif path == "/api/system/uninstall":
+                    u = uninstaller()
+                    if not u:
+                        self.send_json({"error": "Деинсталацијата е достапна само за инсталираната верзија"}, 400)
+                        return
+                    subprocess.Popen([str(u)])
+                    self.send_json({"ok": True})
+                    threading.Timer(1.0, lambda: os._exit(0)).start()
                 elif path == "/api/quit":
                     self.send_json({"ok": True})
                     threading.Timer(0.5, lambda: os._exit(0)).start()
