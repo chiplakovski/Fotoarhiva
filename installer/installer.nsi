@@ -7,7 +7,7 @@ SetCompressorDictSize 64
 
 !define APPNAME "Фотоархива"
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.3.1"
+!define VERSION "2.4.0"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -16,7 +16,7 @@ InstallDir "$LOCALAPPDATA\Programs\Fotoarhiva"
 InstallDirRegKey HKCU "Software\${APPKEY}" "InstallDir"
 RequestExecutionLevel user
 BrandingText "${APPNAME} ${VERSION}"
-VIProductVersion "2.3.1.0"
+VIProductVersion "2.4.0.0"
 VIAddVersionKey /LANG=0 "ProductName" "Fotoarhiva"
 VIAddVersionKey /LANG=0 "FileDescription" "Fotoarhiva Setup"
 VIAddVersionKey /LANG=0 "FileVersion" "${VERSION}"
@@ -29,13 +29,14 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
 !define MUI_WELCOMEPAGE_TITLE "Добредојде во инсталацијата на Фотоархива"
 !define MUI_WELCOMEPAGE_TEXT "Фотоархива ги собира сите слики од компјутерот на едно место, ги средува по година и месец и препознава што има на нив.$\r$\n$\r$\nСè што е потребно е вклучено во инсталацијата. Не е потребна администраторска дозвола.$\r$\n$\r$\nСликите никогаш не се праќаат на интернет.$\r$\n$\r$\nКликни Напред за да продолжиш."
 !define MUI_FINISHPAGE_TITLE "Фотоархива е инсталирана"
-!define MUI_FINISHPAGE_TEXT "Иконата Фотоархива е додадена на Desktop и во Start менито.$\r$\n$\r$\nПри првото отворање се симнува моделот за паметно препознавање (околу 3 GB, само еднаш)."
+!define MUI_FINISHPAGE_TEXT "Фотоархива е инсталирана, заедно со моделите за препознавање.$\r$\n$\r$\nПри отворањето ќе избереш од кои папки да се внесат сликите. Препознавањето почнува дури потоа."
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Отвори ја Фотоархива сега"
 !define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
@@ -146,6 +147,22 @@ Section "Фотоархива" SecMain
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKCU "${UNINSTKEY}" "EstimatedSize" "$0"
 SectionEnd
+
+Section "Модели за препознавање (~3,5 GB од интернет)" SecModels
+  DetailPrint "Ги симнувам моделите за препознавање. Ова трае неколку минути, зависно од интернетот..."
+  SetDetailsView show
+  SetOutPath "$INSTDIR\app"
+  nsExec::ExecToLog '"$INSTDIR\runtime\python.exe" "$INSTDIR\app\fotoarhiva.py" install-models'
+  Pop $0
+  StrCmp $0 "0" models_ok
+    MessageBox MB_OK|MB_ICONINFORMATION "Моделите не се симнаа целосно (проверете ја интернет врската).$\r$\nФотоархива ќе ги досимне сама кога ќе ја вклучите."
+  models_ok:
+SectionEnd
+
+!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "Програмата Фотоархива."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecModels} "Брзо препознавање (SigLIP 2) и опишувач на слики (Qwen3-VL 4B). Се симнуваат сега, за апликацијата да биде комплетна. Ако се исклучи, ќе се симнат подоцна."
+!insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"
   !insertmacro StopApp

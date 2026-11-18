@@ -57,7 +57,7 @@ from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.3.1"
+VERSION = "2.4"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -1150,7 +1150,7 @@ class App:
         if SAFE:
             print("Безбеден режим: моделите не се вклучуваат.")
             self.cloud.configure(False, "", None)
-        else:
+        elif self.cfg.get("configured"):
             self.vlm.configure(self.cfg.get("describer") == "local")
         self.need_reclassify = False
         sig = self.labels_sig()
@@ -1175,6 +1175,8 @@ class App:
                [(c["name"], c.get("desc") or c["name"]) for c in self.cfg.get("my_categories", [])]
 
     def describer(self):
+        if not self.cfg.get("configured") or self.safe:
+            return None, 0
         d = self.cfg.get("describer")
         if d == "cloud" and self.cloud.state == "ready":
             return self.cloud, 3
@@ -1214,6 +1216,7 @@ class App:
                 "watch_seconds": self.cfg["watch_seconds"], "configured": self.cfg["configured"], "ai": self.cfg.get("ai", True),
                 "version": VERSION, "windows": IS_WIN, "heif": HEIF, "ffmpeg": bool(FFMPEG), "autostart": self._autostart,
                 "log": str(LOG_PATH), "model": self.ai.model_id, "my_places": self.cfg.get("my_places", []),
+                "models_ready": {"ai": self.ai.downloaded(), "vlm": self.vlm.downloaded()},
                 "tag_lang": self.cfg.get("tag_lang", "mk"), "my_categories": self.cfg.get("my_categories", []),
                 "cloud_enabled": self.cfg.get("describer") == "cloud", "describer": self.cfg.get("describer", "off"), "cloud_model": self.cloud.model,
                 "cloud_key_hint": ("…" + self.cfg["cloud_key"][-4:]) if self.cfg.get("cloud_key") else "",
@@ -1234,7 +1237,10 @@ class App:
         if "watch_seconds" in data:
             self.cfg["watch_seconds"] = max(10, min(3600, int(data["watch_seconds"])))
         if "configured" in data:
+            first = bool(data["configured"]) and not self.cfg.get("configured")
             self.cfg["configured"] = bool(data["configured"])
+            if first and not self.safe and "describer" not in data:
+                self.vlm.configure(self.cfg.get("describer") == "local")
         if "ai" in data:
             self.cfg["ai"] = bool(data["ai"])
         if data.get("tag_lang") in ("mk", "en"):
@@ -1242,7 +1248,8 @@ class App:
         if data.get("describer") in ("off", "local", "cloud"):
             self.cfg["describer"] = data["describer"]
             self.cfg["cloud_enabled"] = data["describer"] == "cloud"
-            self.vlm.configure(data["describer"] == "local")
+            if self.cfg.get("configured") or data.get("configured"):
+                self.vlm.configure(data["describer"] == "local")
             self.cloud.configure(data["describer"] == "cloud", self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
         if any(k in data for k in ("cloud_enabled", "cloud_key", "cloud_model", "cloud_running")):
             if "cloud_key" in data and str(data["cloud_key"]).strip():
@@ -1312,10 +1319,12 @@ class App:
     def ai_worker(self):
         if self.safe:
             return
+        while not self.cfg.get("configured"):  # ништо не се препознава пред да се заврши водичот
+            time.sleep(2)
         if self.ai.state != "missing_deps":
             if self.ai.downloaded():
                 self.ai.load()
-            elif self.cfg.get("ai_requested"):
+            elif self.cfg.get("ai_requested") and self.cfg.get("ai", True):
                 self.ai.download()  # продолжи симнување што беше прекинато
         if self.ai.state == "ready":
             try:
@@ -1334,6 +1343,36 @@ class App:
                 print("Грешка при препознавање:", e)
                 time.sleep(5)
             time.sleep(2)
+
+    def fix_group(self, old, new, desc, ids):
+        """Корисникот кажал што навистина се сликите: погрешната ознака се тргнува (и не се враќа),
+        новата се става, станува твоја категорија и се учи од примерите за да се средат и сличните слики."""
+        lib = self.lib
+        with lib.db_lock:
+            for pid in ids:
+                lib.db.execute("DELETE FROM tags WHERE photo_id=? AND tag=?", (pid, old))
+                lib.db.execute("INSERT OR IGNORE INTO hidden_tags VALUES(?,?)", (pid, old))
+                if new:
+                    lib.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, new, 1.0, "user"))
+                    lib.db.execute("DELETE FROM hidden_tags WHERE photo_id=? AND tag=?", (pid, new))
+            lib.db.commit()
+        if new and new not in MK2EN and new not in [c["name"] for c in self.cfg.get("my_categories", [])]:
+            self.cfg.setdefault("my_categories", []).append({"name": new, "desc": desc or new})
+            self.ai.set_custom(self.cfg["my_categories"])
+            self.cfg["labels_sig"] = self.labels_sig()
+            save_config(self.cfg)
+
+        def later():
+            try:
+                if new:
+                    lib.learn(new)
+                if self.ai.state == "ready":
+                    lib.reclassify(self.ai)
+            except Exception as e:
+                print("Поправка на група:", e)
+        threading.Thread(target=later, daemon=True).start()
+        lib.bump()
+        return len(ids)
 
     def set_model(self, model_id):
         if model_id not in MODELS or model_id == self.ai.model_id:
@@ -1579,6 +1618,14 @@ def make_handler(app: App):
                 elif path == "/api/ai/enable":
                     app.enable_ai()
                     self.send_json(app.ai.info())
+                elif path == "/api/fix-group":
+                    old = str(data.get("tag", "")).strip()
+                    new = str(data.get("name", "")).strip()[:40]
+                    if not old:
+                        self.send_json({"error": "нема група"}, 400)
+                        return
+                    n = app.fix_group(old, new, str(data.get("desc", "")).strip()[:200], ids)
+                    self.send_json({"ok": True, "fixed": n})
                 elif path == "/api/ai/model":
                     app.set_model(str(data.get("model", "")))
                     self.send_json(app.ai.info())
@@ -1631,6 +1678,41 @@ def open_in_chrome(url):
     webbrowser.open(url)
 
 
+def install_models():
+    """Го повикува инсталерот: ги симнува моделите веднаш, за апликацијата да е комплетна.
+    Пишува латиница, бидејќи прозорецот на инсталерот не прикажува кирилица од конзола."""
+    cfg = load_config()
+    a = AI(DATA_DIR / "models", cfg.get("model", DEFAULT_MODEL))
+    v = LocalVLM(DATA_DIR / "models")
+    ok = True
+    for name, obj in (("Brzo prepoznavanje (SigLIP 2, ~400 MB)", a), ("Opishuvac na sliki (Qwen3-VL 4B, ~3 GB)", v)):
+        if obj.state == "missing_deps":
+            print(f"{name}: preskoknato (nedostasuva motor)", flush=True)
+            continue
+        if obj.downloaded():
+            print(f"{name}: vekje instalirano", flush=True)
+            continue
+        print(f"{name}: go simnuvam...", flush=True)
+        t = threading.Thread(target=(lambda o=obj: o.download(then_load=False)) if obj is a else obj.download, daemon=True)
+        t.start()
+        last = -1
+        while t.is_alive():
+            pct = int(obj.progress * 100)
+            if pct // 5 != last:
+                last = pct // 5
+                print(f"   {name}: {pct}%", flush=True)
+            time.sleep(1)
+        if obj.downloaded():
+            print(f"{name}: gotovo", flush=True)
+        else:
+            ok = False
+            print(f"{name}: NE USPEA - {obj.message.encode('ascii', 'replace').decode()}", flush=True)
+    cfg = load_config()
+    cfg["ai_requested"] = True
+    save_config(cfg)
+    return 0 if ok else 2
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     cmd = args[0] if args else "run"
@@ -1638,6 +1720,8 @@ def main():
     if cmd == "shortcut":
         print(create_shortcuts())
         return
+    if cmd == "install-models":
+        sys.exit(install_models())
     cfg = load_config()
     port = int(cfg.get("port", 8765))
     url = f"http://127.0.0.1:{port}"

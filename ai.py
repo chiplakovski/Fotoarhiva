@@ -243,7 +243,7 @@ class AI:
             last = RuntimeError(f"{repo}: нема потребни ONNX датотеки")
         raise RuntimeError(f"моделот не е најден ({last})")
 
-    def download(self):
+    def download(self, then_load=True):
         with self.lock:
             if self.state in ("downloading", "loading", "ready", "missing_deps"):
                 return
@@ -268,7 +268,10 @@ class AI:
                 part.replace(self.dir / local)
             (self.dir / "source.json").write_text(json.dumps({"repo": repo, "files": plan}), encoding="utf-8")
             self.progress = 1.0
-            self.load()
+            if then_load:
+                self.load()
+            else:
+                self.state = "downloaded"
         except Exception as e:
             self.state, self.message = "error", f"Симнувањето не успеа: {e}. Провери интернет и пробај повторно."
 

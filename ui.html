@@ -290,6 +290,7 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
           <button class="btn sm" id="renalbum" hidden>Преименувај</button>
           <button class="btn sm danger" id="delalbum" hidden>Избриши албум</button>
           <button class="btn sm" id="saveevent" hidden>Зачувај како албум</button>
+          <button class="btn sm primary" id="fixgroup" hidden>Не е точно? Поправи</button>
         </div></div>
       <div class="chips" id="chips" role="group" aria-label="Филтер"></div>
       <div id="groups"></div>
@@ -299,6 +300,7 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
       <button class="btn" id="a-fav">♡ Омилени</button>
       <select id="a-album" aria-label="Додај во албум"><option value="">Во албум…</option></select>
       <button class="btn" id="a-tag">Ознака</button>
+      <button class="btn" id="a-untag" hidden>Не се ова</button>
       <button class="btn" id="a-date">Датум</button>
       <button class="btn danger" id="a-del">Избриши</button>
       <button class="btn" id="a-clear">Откажи</button>
@@ -499,18 +501,23 @@ function renderNotices(){
   if(upload)n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Додавам слики…</b><div class="sub num">${upload.done} од ${upload.total} · нови ${upload.added} · веќе постоеја ${upload.dup}${upload.err?` · неуспешни ${upload.err}`:''}</div></div></div><div class="progress"><i style="width:${upload.total?Math.round(upload.done/upload.total*100):0}%"></i></div></div>`);
   if(s.state==='scanning')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Ги барам и средувам сликите…</b><div class="sub num">${s.total?`${s.scanned} од ${s.total} датотеки`:'Ги пребарувам папките'} · нови ${s.added} · дупликати ${s.duplicates}${s.skipped?` · ${s.skipped} чекаат (се копираат)`:''}</div></div></div><div class="progress"><i style="width:${s.total?Math.round(s.scanned/s.total*100):3}%"></i></div></div>`);
   const ai=s.ai||{};
-  if(ai.state==='not_downloaded'&&data.photos.length)n.push(`<div class="notice info"><div class="t"><div><b>Вклучи паметно препознавање</b><div class="sub">Над 100 категории: море, планини, луѓе, деца, свадби, храна, кучиња, документи… и пребарување со зборови на македонски или англиски, на пр. „куче на плажа“. Еднократно симнување од околу 400 MB. Сè работи на твојот компјутер, сликите не се праќаат никаде.</div></div></div><button class="btn sm primary" data-act="ai">Вклучи</button></div>`);
-  if(ai.state==='downloading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го симнувам моделот за препознавање…</b><div class="sub num">${Math.round(ai.progress*100)}% · ова се прави само еднаш</div></div></div><div class="progress"><i style="width:${Math.round(ai.progress*100)}%"></i></div></div>`);
-  if(ai.state==='loading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го подготвувам препознавањето…</b><div class="sub">Првиот пат трае околу една минута.</div></div></div></div>`);
-  if(ai.state==='ready'&&s.ai_pending>0&&s.state!=='scanning'){const tot=s.ai_pending+s.ai_done;n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Препознавам што има на сликите…</b><div class="sub num">Уште ${s.ai_pending} ${s.ai_pending===1?'слика':'слики'}. Може слободно да ја користиш апликацијата.</div></div></div><div class="progress"><i style="width:${tot?Math.round(s.ai_done/tot*100):0}%"></i></div></div>`)}
-  if(s.safe)n.push(`<div class="notice info"><div class="t"><div><b>Безбеден режим</b><div class="sub">Препознавањето е исклучено за да се отвори апликацијата. Смени го опишувачот во Поставки, па стартувај ја Фотоархива нормално од иконата.</div></div></div><button class="btn sm" data-act="settings">Поставки</button></div>`);
-  const vl=s.vlm||{};
-  if(s.describer==='local'){
-    if(vl.state==='downloading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го симнувам вградениот модел Qwen3-VL…</b><div class="sub num">${Math.round((vl.progress||0)*100)}% од околу 3 GB · само еднаш</div></div></div><div class="progress"><i style="width:${Math.round((vl.progress||0)*100)}%"></i></div></div>`);
-    if(vl.state==='loading')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Го вклучувам моделот Qwen3-VL…</b><div class="sub">Ја проверувам графичката картичка.</div></div></div></div>`);
-    if(vl.state==='ready'&&vl.pending>0&&cfg.cloud_running!==false&&s.state!=='scanning')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Qwen3-VL ги опишува сликите…</b><div class="sub num">Уште ${vl.pending} · работи на ${esc(vl.device)}</div></div></div><button class="btn sm" data-act="cloudpause">Паузирај</button></div>`);
-    if(vl.state==='error'||vl.state==='missing_deps')n.push(`<div class="notice"><div class="t"><div><b>Вградениот модел не работи.</b><div class="sub">${esc(vl.message)}</div></div></div><button class="btn sm" data-act="vlmretry">Пробај повторно</button></div>`);
+  if(cfg.configured&&!s.safe){
+    const vl=s.vlm||{},loc=s.describer==='local';
+    const dl=[];
+    if(ai.state==='downloading')dl.push(['брзо препознавање',ai.progress]);
+    if(loc&&vl.state==='downloading')dl.push(['опишувач Qwen3-VL',vl.progress]);
+    if(dl.length){const avg=dl.reduce((x,d)=>x+(d[1]||0),0)/dl.length;n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Ги довршувам моделите за препознавање…</b><div class="sub num">${dl.map(d=>`${d[0]} ${Math.round((d[1]||0)*100)}%`).join(' · ')} · само еднаш</div></div></div><div class="progress"><i style="width:${Math.round(avg*100)}%"></i></div></div>`)}
+    else if(ai.state==='loading'||(loc&&vl.state==='loading'))n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Ги вклучувам моделите за препознавање…</b><div class="sub">Ја проверувам графичката картичка.</div></div></div></div>`);
+    else{
+      const parts=[];
+      if(ai.state==='ready'&&s.ai_pending>0)parts.push(`брзо препознавање: уште ${s.ai_pending}`);
+      if(loc&&vl.state==='ready'&&vl.pending>0&&cfg.cloud_running!==false)parts.push(`детален опис: уште ${vl.pending} (${esc(vl.device)})`);
+      if(parts.length&&s.state!=='scanning')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Ги препознавам сликите…</b><div class="sub num">${parts.join(' · ')}. Може слободно да ја користиш апликацијата.</div></div></div>${loc&&vl.pending>0?'<button class="btn sm" data-act="cloudpause">Паузирај</button>':''}</div>`);
+    }
+    if(ai.state==='not_downloaded'&&cfg.ai===false&&data.photos.length)n.push(`<div class="notice info"><div class="t"><div><b>Препознавањето е исклучено.</b><div class="sub">Вклучи го за сликите да се групираат по содржина и да се пребаруваат со зборови.</div></div></div><button class="btn sm primary" data-act="ai">Вклучи</button></div>`);
+    if(loc&&(vl.state==='error'||vl.state==='missing_deps'))n.push(`<div class="notice"><div class="t"><div><b>Опишувачот не работи.</b><div class="sub">${esc(vl.message)}</div></div></div><button class="btn sm" data-act="vlmretry">Пробај повторно</button></div>`);
   }
+  if(s.safe)n.push(`<div class="notice info"><div class="t"><div><b>Безбеден режим</b><div class="sub">Препознавањето е исклучено за да се отвори апликацијата. Смени го опишувачот во Поставки, па стартувај ја Фотоархива нормално од иконата.</div></div></div><button class="btn sm" data-act="settings">Поставки</button></div>`);
   const cl=s.cloud||{};
   if(s.describer==='cloud'&&cl.state==='ready'&&cl.pending>0&&cfg.cloud_running!==false&&s.state!=='scanning')n.push(`<div class="notice"><div class="t"><span class="spin"></span><div><b>Claude ги опишува сликите…</b><div class="sub num">Уште ${cl.pending} · проценка ≈ $${cl.est_usd}</div></div></div><button class="btn sm" data-act="cloudpause">Паузирај</button></div>`);
   if(cl.state==='error'&&cfg.cloud_enabled)n.push(`<div class="notice"><div class="t"><div><b>Claude не работи.</b><div class="sub">${esc(cl.message)}</div></div></div><button class="btn sm" data-act="settings">Поставки</button></div>`);
@@ -533,6 +540,7 @@ function render(){
   const v=state.view;
   $('renalbum').hidden=$('delalbum').hidden=v!=='album';
   $('saveevent').hidden=v!=='event';
+  $('fixgroup').hidden=v!=='tag';
   $('sortbtn').hidden=v==='dups'||v==='events';
   if(v==='dups')return renderDups();
   if(v==='events')return renderEvents();
@@ -645,6 +653,7 @@ function syncSel(){
   const tr=state.view==='trash';
   $('a-fav').textContent=tr?'Врати':'♡ Омилени';$('a-del').textContent=tr?'Избриши трајно':'Избриши';
   $('a-tag').hidden=$('a-date').hidden=$('a-album').hidden=tr;
+  $('a-untag').hidden=state.view!=='tag';
   $('a-album').innerHTML='<option value="">Во албум…</option>'+data.albums.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')+'<option value="new">+ Нов албум…</option>'+(state.view==='album'?'<option value="remove">Тргни од овој албум</option>':'');
 }
 function clearSel(){state.sel.clear();state.selecting=false;syncSel()}
@@ -663,6 +672,34 @@ $('a-album').onchange=async e=>{const v=e.target.value;e.target.value='';if(!v)r
   else if(v==='new'){const name=await promptBox('Нов албум','Име на албумот');if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await api(`/api/albums/${r.id}/add`,{ids});toast(`Албумот „${name}“ е создаден`)}
   else{await api(`/api/albums/${v}/add`,{ids});toast(`Додадени во „${data.albums.find(a=>a.id==v).name}“`)}
   clearSel();await load()};
+$('a-untag').onclick=()=>fixGroup(true);
+$('fixgroup').onclick=()=>fixGroup(false);
+async function fixGroup(onlySel){
+  const tag=state.key,inGroup=data.photos.filter(p=>!p.trash&&(p.tags||[]).includes(tag)),sel=[...state.sel].filter(id=>inGroup.some(p=>p.id===id));
+  const c=modal(`<h3>Што се всушност ${onlySel?'избраните слики':'сликите во „'+esc(tagName(tag))+'“'}?</h3>
+    <p class="muted" style="margin:0">Напиши што има на нив. Апликацијата ќе ги преименува, ќе ја научи разликата и автоматски ќе ги среди и сличните слики.</p>
+    <input type="text" id="fg-name" placeholder="пр. Инокс машини" list="fg-list"><datalist id="fg-list">${allTags().filter(t=>t!==tag).map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+    <input type="text" id="fg-desc" placeholder="Краток опис (по избор), пр. машини од нерѓосувачки челик за производство">
+    <div class="flist">
+      <label class="choice"><input type="radio" name="fg-scope" value="all" ${onlySel||!sel.length?'':''}${!onlySel?'checked':''}><span><b>Сите ${plural(inGroup.length,'слика','слики')} во групата</b></span></label>
+      ${sel.length?`<label class="choice"><input type="radio" name="fg-scope" value="sel" ${onlySel?'checked':''}><span><b>Само избраните ${sel.length}</b><small>Другите остануваат во „${esc(tagName(tag))}“.</small></span></label>`:''}
+    </div>
+    <label class="choice"><input type="checkbox" id="fg-only-remove"><span><b>Само тргни ја ознаката „${esc(tagName(tag))}“</b><small>Ако не сакаш нова група, туку само да се исчисти погрешната.</small></span></label>
+    <div class="foot"><button class="btn" id="fg-c">Откажи</button><button class="btn primary" id="fg-ok">Поправи</button></div>`,true);
+  const nm=c.querySelector('#fg-name');nm.focus();
+  c.querySelector('#fg-only-remove').onchange=e=>{nm.disabled=e.target.checked;c.querySelector('#fg-desc').disabled=e.target.checked};
+  c.querySelector('#fg-c').onclick=closeModal;
+  c.querySelector('#fg-ok').onclick=async()=>{
+    const onlyRemove=c.querySelector('#fg-only-remove').checked,name=nm.value.trim(),desc=c.querySelector('#fg-desc').value.trim();
+    if(!onlyRemove&&!name){toast('Напиши што се сликите, или штиклирај „Само тргни ја ознаката“');return}
+    const scope=(c.querySelector('[name=fg-scope]:checked')||{}).value||'all';
+    const ids=scope==='sel'?sel:inGroup.map(p=>p.id);
+    const r=await api('/api/fix-group',{tag,name:onlyRemove?'':name,desc,ids});
+    closeModal();clearSel();
+    toast(onlyRemove?`Ознаката е тргната од ${plural(r.fixed,'слика','слики')}`:`${plural(r.fixed,'слика е преместена','слики се преместени')} во „${name}“. Сличните слики се средуваат автоматски.`);
+    await load();if(!onlyRemove&&name)go('tag',name);
+  };
+}
 $('a-tag').onclick=async()=>{const t=await promptBox('Додај ознака','пр. Одмор, Баба, Работа',allTags());if(!t)return;await api('/api/photos/update',{ids:[...state.sel],add_tag:t});toast(`Ознаката „${t}“ е додадена`);clearSel();await load()};
 $('a-date').onclick=async()=>{const first=byId.get([...state.sel][0]);const v=await dateBox(first.d);if(!v)return;await api('/api/photos/update',{ids:[...state.sel],taken:v});toast('Датумот е сменет и сликите се преместени');clearSel();await load()};
 let TAG_EN={},TAG_MK={};
@@ -824,14 +861,14 @@ async function onboarding(){
           <label class="choice"><input type="radio" name="ob-mode" value="move" ${mode==='move'?'checked':''}><span><b>Премести ги</b><small>Сликите се преместуваат во библиотеката. Не се дуплира просторот.</small></span></label>
         </div>
         <div><div class="eyebrow" style="margin-bottom:6px">Средените слики ќе бидат во</div><div class="pathbox"><code id="ob-lib">${esc(lib)}</code><button class="btn sm" id="ob-chlib">Промени</button></div></div>
-        <label class="choice"><input type="checkbox" id="ob-ai" ${ai?'checked':''}><span><b>Паметно препознавање на содржина</b><small>Препознава море, планини, луѓе, деца, храна, животни, документи и друго. Еднократно симнува ~155 MB. Работи на твојот компјутер.</small></span></label>
+        <label class="choice"><input type="checkbox" id="ob-ai" ${ai?'checked':''}><span><b>Препознавање и опис на сликите</b><small>Вграден Qwen3-VL ја опишува секоја слика (на пр. „машини од инокс во фабрика“) и става ознаки, а SigLIP 2 овозможува пребарување со зборови. Сè работи на твојот компјутер. ${(cfg.models_ready||{}).ai&&(cfg.models_ready||{}).vlm?'<b>Моделите се веќе инсталирани.</b>':'Моделите што недостасуваат ќе се симнат (до ~3,5 GB).'}</small></span></label>
         <div class="foot"><button class="btn" id="ob-back">Назад</button><button class="btn primary" id="ob-go">Почни</button></div>`,true);
       c.querySelectorAll('[name=ob-mode]').forEach(r=>r.onchange=()=>mode=r.value);
       c.querySelector('#ob-ai').onchange=e=>ai=e.target.checked;
       c.querySelector('#ob-chlib').onclick=async()=>{const p=await pickFolder('Каде да бидат средените слики?');if(p){lib=p.replace(/[\\/]+$/,'')+(/Фотоархива$/.test(p)?'':(p.includes('\\')?'\\':'/')+'Фотоархива')}draw()};
       c.querySelector('#ob-back').onclick=()=>{step=1;draw()};
       c.querySelector('#ob-go').onclick=async()=>{
-        cfg=await api('/api/config',{library:lib,sources:[...sel],mode,ai,configured:true});
+        cfg=await api('/api/config',{library:lib,sources:[...sel],mode,ai,describer:ai?(cfg.describer==='cloud'?'cloud':'local'):'off',configured:true});
         if(ai)await api('/api/ai/enable',{});
         await api('/api/scan',{});closeModal();toast('Почнувам. Сликите ќе се појавуваат како што се средуваат.');await load();refreshStatus();
       };
