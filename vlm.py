@@ -1,6 +1,6 @@
-"""Вграден визуелен јазичен модел (Qwen3-VL-4B, 4-битен) што ја „гледа“ сликата и ја опишува.
-Работи на компјутерот: на NVIDIA/AMD/Intel графичка картичка преку DirectML, или на процесорот.
-Моделот (~2,9 GB) се симнува еднаш од HuggingFace. Сликите никогаш не излегуваат од компјутерот.
+"""Built-in vision-language model (Qwen3-VL-4B, 4-bit) that "looks" at each photo and describes it.
+Runs on the computer: on an NVIDIA/AMD/Intel graphics card through DirectML, or on the processor.
+The model (~2.9 GB) is downloaded once from HuggingFace. Photos never leave the computer.
 """
 import json, os, queue, re, subprocess, sys, tempfile, threading, urllib.request
 from pathlib import Path
@@ -17,8 +17,8 @@ MAX_SIDE = 768
 
 
 def deps_ok():
-    # Само проверка дека пакетот постои. Самиот мотор се вчитува во посебен процес,
-    # за грешка во драјверот на картичката да не ја сруши апликацијата.
+    # Only check that the package exists. The engine itself is loaded in a separate process,
+    # so a graphics driver crash cannot take down the app.
     import importlib.util
     if importlib.util.find_spec("onnxruntime_genai") is None:
         return False, "onnxruntime_genai"
@@ -30,7 +30,7 @@ class ChildDied(RuntimeError):
 
 
 class _Child:
-    """Моделот работи во посебен процес; разговараме преку JSON редови."""
+    """The model runs in a separate process; we talk to it with JSON lines."""
 
     def __init__(self, model_dir, device, log_path):
         exe = sys.executable
@@ -46,25 +46,25 @@ class _Child:
         for line in self.p.stdout:
             if line.startswith(b"@@"):
                 self.q.put(json.loads(line[2:].decode("utf-8")))
-        self.q.put(None)  # процесот заврши
+        self.q.put(None)  # the process ended
 
     def call(self, req, timeout):
         if self.p.poll() is not None:
-            raise ChildDied(f"процесот заврши (код {self.p.returncode})")
+            raise ChildDied(f"the process ended (code {self.p.returncode})")
         try:
             self.p.stdin.write((json.dumps(req, ensure_ascii=False) + "\n").encode("utf-8"))
             self.p.stdin.flush()
         except OSError:
-            raise ChildDied("процесот не одговара")
+            raise ChildDied("the process is not responding")
         try:
             r = self.q.get(timeout=timeout)
         except queue.Empty:
             self.kill()
-            raise ChildDied("истече времето")
+            raise ChildDied("timed out")
         if r is None:
-            raise ChildDied(f"процесот падна (код {self.p.poll()})")
+            raise ChildDied(f"the process crashed (code {self.p.poll()})")
         if not r.get("ok"):
-            raise RuntimeError(r.get("error", "грешка"))
+            raise RuntimeError(r.get("error", "error"))
         return r
 
     def kill(self):
@@ -75,7 +75,7 @@ class _Child:
 
 
 class LocalVLM:
-    name = "Qwen3-VL 4B (вграден)"
+    name = "Qwen3-VL 4B (built-in)"
 
     def __init__(self, data_dir: Path):
         self.dir = Path(data_dir) / "qwen3-vl-4b"
@@ -85,10 +85,10 @@ class LocalVLM:
         self.enabled = False
         self.child = None
         self.log_path = os.environ.get("FOTOARHIVA_LOG", "")
-        self.lock = threading.Lock()      # еден опис во исто време (графичката меморија е ограничена)
+        self.lock = threading.Lock()      # one description at a time (graphics memory is limited)
         ok, err = deps_ok()
         if not ok:
-            self.state, self.message = "missing_deps", f"Моторот за опишување не е инсталиран ({err[:120]})."
+            self.state, self.message = "missing_deps", f"The describing engine is not installed ({err[:120]})."
 
     def downloaded(self):
         return (self.dir / "genai_config.json").exists() and (self.dir / "text.onnx.data").exists() and not list(self.dir.glob("*.part"))
@@ -126,7 +126,7 @@ class LocalVLM:
                 info = json.loads(r.read().decode("utf-8"))
             files = [s["rfilename"] for s in info.get("siblings", []) if s["rfilename"].startswith(FOLDER + "/")]
             if not files:
-                raise RuntimeError("моделот не е најден на HuggingFace")
+                raise RuntimeError("the model was not found on HuggingFace")
             done = 0
             for f in sorted(files, key=lambda x: x.endswith(".data")):
                 local = self.dir / Path(f).name
@@ -146,13 +146,13 @@ class LocalVLM:
                 part.replace(local)
             self.progress = 1.0
         except Exception as e:
-            self.state, self.message = "error", f"Симнувањето не успеа: {e}. Провери интернет и пробај повторно."
+            self.state, self.message = "error", f"Download failed: {e}. Check the internet connection and try again."
 
-    # ---------- load (во посебен процес)
+    # ---------- load (in a separate process)
     def load(self):
         self.state, self.message = "loading", ""
         errors = []
-        bad = self.dir / "gpu_failed.txt"   # картичката веќе еднаш паднала → директно на процесорот
+        bad = self.dir / "gpu_failed.txt"   # the graphics card already crashed once → go straight to the processor
         devices = ["cpu"] if bad.exists() else os.environ.get("FOTOARHIVA_VLM_DEVICES", "dml,cpu").split(",")
         for dev in devices:
             child = None
@@ -164,7 +164,7 @@ class LocalVLM:
                     continue
                 child.call({"op": "test"}, timeout=600)
                 self.child = child
-                self.device = "графичка картичка" if dev == "dml" else "процесор (побавно)"
+                self.device = "graphics card" if dev == "dml" else "processor (slower)"
                 self.state = "ready"
                 return
             except Exception as e:
@@ -176,14 +176,14 @@ class LocalVLM:
                         bad.write_text(str(e), encoding="utf-8")
                     except OSError:
                         pass
-        self.state, self.message = "error", "Моделот не можеше да се вклучи: " + " | ".join(errors)[:300]
+        self.state, self.message = "error", "The model could not be started: " + " | ".join(errors)[:300]
 
     def _generate(self, image_path, question, max_new):
         try:
             return self.child.call({"op": "gen", "image": str(image_path), "q": question, "max": max_new}, timeout=900)["text"]
         except ChildDied as e:
-            # процесот падна при опишување: следниот пат на процесорот
-            if self.device.startswith("графичка"):
+            # the process crashed while describing: next time use the processor
+            if self.device.startswith("graphics"):
                 try:
                     (self.dir / "gpu_failed.txt").write_text(str(e), encoding="utf-8")
                 except OSError:
@@ -194,16 +194,15 @@ class LocalVLM:
             raise
 
     def describe(self, jpeg, labels):
-        """labels: [(македонски, англиски)]. Враќа ист облик како Claude: tags (мк), new_tags, caption_mk, caption_en, kind.
-        Моделот слободно наведува англиски ознаки; тие се пресликуваат во нашите категории преку речник.
-        Твоите категории (Мои категории) се даваат на моделот по број, бидејќи се малку."""
+        """labels: [(tag name, English description)]. Returns the same shape as Claude: tags, new_tags, caption_en, kind.
+        The model freely lists English tags; they are mapped to our categories with a dictionary.
+        Your own categories ("My categories") are given to the model by number, since there are few of them."""
         from PIL import Image
         import io
-        from ai import MK2EN
-        mine = [(mk, en) for mk, en in labels if mk not in MK2EN]
+        from ai import BUILTIN
+        mine = [(name, desc) for name, desc in labels if name not in BUILTIN]
         q = ("Look at this photo. Reply with JSON only, no other text:\n"
              '{"caption_en": "one specific English sentence describing the photo", '
-             '"caption_mk": "the same sentence in Macedonian (Cyrillic)", '
              '"tags": ["3 to 6 short English tags: the main subject, objects, the place/setting, the activity"], '
              + ('"mine": [numbers from MY CATEGORIES below that clearly match, [] if none], ' if mine else '')
              + '"kind": "photo or screenshot or document"}')
@@ -225,7 +224,8 @@ class LocalVLM:
             return None
         free = [str(t).strip() for t in (d.get("tags") or []) if str(t).strip()][:6]
         text = " ".join(free + [str(d.get("caption_en", ""))])
-        tags = map_to_categories(text, [l for l in labels if l[0] in MK2EN])
+        builtin = [l for l in labels if l[0] in BUILTIN]
+        tags = map_to_categories(text, builtin)
         for c in d.get("mine") or []:
             try:
                 i = int(c) - 1
@@ -233,12 +233,12 @@ class LocalVLM:
                 continue
             if 0 <= i < len(mine):
                 tags.insert(0, mine[i][0])
-        extra = [t[:1].upper() + t[1:] for t in free if not map_to_categories(t, [l for l in labels if l[0] in MK2EN])][:3]
-        return {"tags": list(dict.fromkeys(tags))[:5], "new_tags": extra, "caption_mk": str(d.get("caption_mk", "")).strip(),
+        extra = [t[:1].upper() + t[1:] for t in free if not map_to_categories(t, builtin)][:3]
+        return {"tags": list(dict.fromkeys(tags))[:5], "new_tags": extra, "caption_mk": "",
                 "caption_en": str(d.get("caption_en", "")).strip(), "kind": d.get("kind", "photo")}
 
 
-# Англиски зборови → наши категории (македонско име). Покрај англиското име на категоријата.
+# English words → our categories. In addition to the English name of the category itself.
 SYNONYMS = {
     "Луѓе": ["person", "people", "man", "woman", "men", "women", "girl", "boy", "lady", "guy"],
     "Деца": ["child", "children", "kid", "kids", "toddler"], "Бебе": ["baby", "infant", "newborn"],
@@ -284,6 +284,11 @@ SYNONYMS = {
 }
 
 
+def _english_synonyms():
+    from ai import MK2EN
+    return {MK2EN.get(k, k): v for k, v in SYNONYMS.items()}
+
+
 def _norm(w):
     w = w.lower().strip()
     for suf in ("ies", "es", "s"):
@@ -292,11 +297,17 @@ def _norm(w):
     return w
 
 
+SYN = {}
+
+
 def map_to_categories(text, labels):
+    global SYN
+    if not SYN:
+        SYN = _english_synonyms()
     words = " " + " ".join(_norm(w) for w in re.findall(r"[a-zA-Z']+", text)) + " "
     out = []
     for mk, en in labels:
-        keys = SYNONYMS.get(mk, []) + [k for k in re.split(r"\s*(?:&|,| and )\s*", en.lower()) if k]
+        keys = SYN.get(mk, []) + [k for k in re.split(r"\s*(?:&|,| and )\s*", en.lower()) if k]
         for k in keys:
             kn = " ".join(_norm(w) for w in k.split())
             if f" {kn} " in words:
@@ -305,7 +316,7 @@ def map_to_categories(text, labels):
     return out
 
 
-# ---------- процесот што го извршува моделот
+# ---------- the process that runs the model
 def _worker(model_dir, device):
     import onnxruntime_genai as og
     out = sys.stdout.buffer
@@ -354,14 +365,14 @@ def _worker(model_dir, device):
                     n += 1
                 send({"ok": True, "text": text})
             else:
-                send({"ok": False, "error": f"непознато: {op}"})
+                send({"ok": False, "error": f"unknown: {op}"})
         except Exception as e:
             send({"ok": False, "error": str(e)[:500]})
 
 
 if __name__ == "__main__" and len(sys.argv) >= 4 and sys.argv[1] == "--worker":
     if os.environ.get("FOTOARHIVA_VLM_CRASH") == sys.argv[3]:
-        os._exit(3)  # само за тестирање: симулира пад на драјверот
+        os._exit(3)  # testing only: simulates a driver crash
     import faulthandler
     faulthandler.enable()
     _worker(sys.argv[2], sys.argv[3])

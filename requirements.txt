@@ -1,8 +1,8 @@
 Pillow>=10.0
 pillow-heif>=0.16
 numpy
-onnxruntime-directml==1.24.4  # Windows; на Linux/Mac: onnxruntime
-onnxruntime-genai-directml==0.13.1  # Windows; на Linux/Mac: onnxruntime-genai
+onnxruntime-directml==1.24.4  # Windows; on Linux/Mac: onnxruntime
+onnxruntime-genai-directml==0.13.1  # Windows; on Linux/Mac: onnxruntime-genai
 tokenizers
 imageio-ffmpeg
 anthropic

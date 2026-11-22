@@ -1,13 +1,13 @@
-"""Најпрецизно препознавање преку Claude (Anthropic). По избор: бара API клуч и ја праќа
-намалената слика (најмногу 1024 px) до Anthropic. Оригиналите остануваат на компјутерот.
+"""The most accurate recognition, through Claude (Anthropic). Optional: needs an API key and sends a
+smaller copy of the photo (at most 1024 px) to Anthropic. The originals stay on the computer.
 """
 import base64, io, json, threading, time
 
 CLOUD_MODELS = {
-    # приближна цена за 1000 слики (слика ~1000 токени, кеширан опис на категориите, краток одговор)
-    "claude-opus-5-5": {"name": "Claude Opus 5.5 (најпрецизно)", "usd_per_1000": 10.0, "fallback": True},
-    "claude-sonnet-5-5": {"name": "Claude Sonnet 5.5 (многу добро, поевтино)", "usd_per_1000": 5.0, "fallback": True},
-    "claude-haiku-5-5": {"name": "Claude Haiku 5.5 (добро, најевтино)", "usd_per_1000": 0.3, "fallback": False},
+    # approximate cost per 1000 photos (photo ~1000 tokens, cached category list, short answer)
+    "claude-opus-5-5": {"name": "Claude Opus 5.5 (most accurate)", "usd_per_1000": 10.0, "fallback": True},
+    "claude-sonnet-5-5": {"name": "Claude Sonnet 5.5 (very good, cheaper)", "usd_per_1000": 5.0, "fallback": True},
+    "claude-haiku-5-5": {"name": "Claude Haiku 5.5 (good, cheapest)", "usd_per_1000": 0.3, "fallback": False},
 }
 DEFAULT_CLOUD_MODEL = "claude-opus-5-5"
 
@@ -26,18 +26,18 @@ SCHEMA = {
 
 
 def system_prompt(labels):
-    names = "\n".join(f"- {mk} ({en})" for mk, en in labels)
+    names = "\n".join(f"- {name}" + (f" ({desc})" if desc and desc != name else "") for name, desc in labels)
     return (
-        "Ги опишуваш фотографиите од личната фото-архива на корисник од Македонија, за да може полесно да ги пребарува.\n\n"
-        "За секоја слика врати:\n"
-        "- tags: категории од листата подолу што навистина и јасно се гледаат на сликата. Пиши ги точно како македонското име во листата. "
-        "Најмногу 5. Ако ниедна не одговара, врати празна листа. Не погодувај: подобро без ознака отколку погрешна.\n"
-        "- new_tags: до 3 конкретни ознаки на македонски за важни работи што ги нема во листата "
-        "(на пример „Инокс машини“, „Пекара“, „Трактор“). Кратки, со голема почетна буква, без точки.\n"
-        "- caption_mk: една реченица на македонски што опишува што има на сликата, конкретно (предмети, место, активност).\n"
-        "- caption_en: истата реченица на англиски.\n"
-        "- kind: „screenshot“ ако е снимка од екран, „document“ ако е главно хартија/текст, инаку „photo“.\n\n"
-        f"Листа на категории:\n{names}"
+        "You describe the photos in a person's private photo archive so they can search them easily.\n\n"
+        "For each photo return:\n"
+        "- tags: categories from the list below that are clearly visible in the photo. Write them exactly as in the list. "
+        "At most 5. If none fits, return an empty list. Do not guess: no tag is better than a wrong one.\n"
+        "- new_tags: up to 3 specific English tags for important things that are not in the list "
+        "(for example \"Stainless steel machines\", \"Bakery\", \"Tractor\"). Short, capitalized, no periods.\n"
+        "- caption_mk: leave empty.\n"
+        "- caption_en: one specific English sentence describing what is in the photo (objects, place, activity).\n"
+        "- kind: \"screenshot\" for a screen capture, \"document\" if it is mainly paper/text, otherwise \"photo\".\n\n"
+        f"Categories:\n{names}"
     )
 
 
@@ -62,10 +62,10 @@ class CloudAI:
         try:
             import anthropic  # noqa: F401
         except Exception as e:
-            self.state, self.message = "error", f"Недостасува делот за Claude ({e}). Инсталирај ја Фотоархива повторно."
+            self.state, self.message = "error", f"The Claude part is missing ({e}). Please reinstall Fotoarhiva."
             return
         if not self.key:
-            self.state, self.message = "error", "Внеси API клуч во Поставки."
+            self.state, self.message = "error", "Enter an API key in Settings."
             return
         self.state, self.message = "ready", ""
 
@@ -92,7 +92,7 @@ class CloudAI:
         return buf.getvalue()
 
     def describe(self, jpeg, labels):
-        """Враќа dict со tags/new_tags/caption_mk/caption_en/kind или None ако барањето е одбиено."""
+        """Returns a dict with tags/new_tags/caption_en/kind, or None if the request was declined."""
         import anthropic
         params = dict(
             model=self.model,
@@ -101,7 +101,7 @@ class CloudAI:
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
                                              "data": base64.standard_b64encode(jpeg).decode("ascii")}},
-                {"type": "text", "text": "Опиши ја оваа слика."},
+                {"type": "text", "text": "Describe this photo."},
             ]}],
             output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
         )
@@ -112,10 +112,10 @@ class CloudAI:
             else:
                 r = self._client().messages.create(**params)
         except anthropic.AuthenticationError:
-            self.state, self.message = "error", "API клучот не е валиден. Провери го во Поставки."
+            self.state, self.message = "error", "The API key is not valid. Check it in Settings."
             raise
         except anthropic.PermissionDeniedError:
-            self.state, self.message = "error", "API клучот нема дозвола за овој модел."
+            self.state, self.message = "error", "The API key has no access to this model."
             raise
         except anthropic.RateLimitError as e:
             wait = int(e.response.headers.get("retry-after", "30") or 30)

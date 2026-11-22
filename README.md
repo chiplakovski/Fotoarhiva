@@ -1,169 +1,156 @@
-# Фотоархива 2.4
+# Fotoarhiva 2.5
 
-**Симни го инсталерот:** [Fotoarhiva-Setup-2.4.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.4.0.exe)
+**Download the installer:** [Fotoarhiva-Setup-2.5.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.5.0.exe)
 
-Апликација за Windows што ги собира сите слики од компјутерот на едно место,
-ги средува по година и месец и препознава што има на нив.
-Се отвора во Chrome како посебен прозорец. Сè работи на твојот компјутер.
+Fotoarhiva is a Windows app that gathers all the photos on your computer in one place,
+organizes them by year and month and recognizes what is in them.
+It opens in Chrome as its own window. Everything runs on your computer.
 
-## Инсталација
+## Installation
 
-1. Симни го `Fotoarhiva-Setup-2.4.0.exe` и стартувај го.
-   Ако Windows покаже „Windows protected your PC“: **More info → Run anyway**.
-2. Во инсталерот остави штиклирано **„Модели за препознавање“**. Тие се симнуваат за време на
-   инсталацијата (~3,5 GB, неколку минути), за апликацијата да биде комплетна.
-3. На крајот се отвора Фотоархива со водич. **Ништо не се препознава додека не го завршиш:**
-   - штиклирај ги папките со слики (сам ги наоѓа Pictures, Downloads, Desktop, OneDrive, D: диск…),
-   - со „Додај друга папка или диск“ избери уште папки,
-   - избери дали сликите да се **копираат** (препорачано) или **преместат**,
-   - кликни **Почни**. Дури тогаш почнува внесувањето и препознавањето.
+1. Download `Fotoarhiva-Setup-2.5.0.exe` and run it.
+   If Windows shows "Windows protected your PC": **More info → Run anyway**.
+2. Keep **"Recognition models"** ticked in the setup. They are downloaded during installation
+   (~3.5 GB, a few minutes) so the app is complete.
+3. At the end Fotoarhiva opens with a welcome guide. **Nothing is recognized until you finish it:**
+   - tick the folders with photos (it finds Pictures, Downloads, Desktop, OneDrive, D: drive… by itself),
+   - use "Add another folder or drive" for more folders,
+   - choose whether photos are **copied** (recommended) or **moved**,
+   - click **Start**. Only then do importing and recognition begin.
 
-На Desktop и во Start менито има икона **Фотоархива**.
+There is a **Fotoarhiva** icon on the Desktop and in the Start menu.
 
-## Додавање слики
+Upgrading from a Macedonian version (2.4 or older) converts the library automatically:
+folder names (e.g. "07 - July", "Videos", "Screenshots", "Trash"), tags, sources and place names become English.
+No photos are lost.
 
-- Копче **Додај слики** горе десно:
-  - **Избери слики…**: од компјутер, од телефон поврзан со кабел или од USB,
-  - **Увези цела папка…**: еднократно ги внесува сите слики од папката,
-  - **Следи папка автоматски…**: новите слики во папката сами се додаваат.
-- Или **повлечи** слики или папки од Explorer во прозорецот.
-- Папките што се следат се менуваат во **Поставки** (запчето горе десно).
+## Adding photos
 
-## Што препознава
+- **Add photos** button at the top right:
+  - **Choose photos…**: from the computer, a phone connected by cable, or USB,
+  - **Import a whole folder…**: imports all photos from a folder once,
+  - **Watch a folder automatically…**: new photos in that folder are added on their own.
+- Or **drag** photos or folders from Explorer into the window.
+- Watched folders are managed in **Settings** (the gear at the top right).
 
-| Што | Како |
-|---|---|
-| Датум | Од фотографијата, од името (`IMG-20230605-WA0012`, `Screenshot_2026…`, `FB_IMG_…`), од видео-датотеката |
-| Место | Од GPS во фотографијата, без интернет: Охрид, Скопје, Солун, Атина… |
-| Содржина | Над 120 категории (природа, места, дом, работа и индустрија, луѓе, настани, спорт, храна, животни, предмети, документи), твои категории и научени ознаки |
-| Извор | Камера, WhatsApp, Viber, Facebook / Messenger, Instagram, Telegram, Snapchat, уредени слики, интернет |
-| Тип | Фотографии, видеа, скриншоти |
-| Настани | Слики од ист период и место автоматски стануваат настан, на пример „Охрид · 14–16. јули 2024“ |
-| Дупликати | Идентични слики се прескокнуваат и се гледаат во „Дупликати“ |
+## Recognition
 
-## Опишувач на слики: вграден Qwen3-VL (препорачано)
+### Photo describer: built-in Qwen3-VL (recommended)
 
-Фотоархива има вграден **визуелен јазичен модел Qwen3-VL 4B** што ја „гледа“ секоја слика како човек,
-пишува опис на македонски и англиски и става точни ознаки (на пример „манул мачка во снежна шума“
-или „машини од инокс во фабрика“).
+Fotoarhiva includes the **Qwen3-VL 4B vision-language model**. It "looks" at every photo like a person,
+writes a description and adds accurate tags (for example "stainless steel machines in a factory").
 
-- Бесплатно и **сè работи на твојот компјутер**, сликите не излегуваат никаде.
-- Ја користи графичката картичка (NVIDIA, AMD или Intel, доволно е 6 GB) преку DirectML.
-  Ако картичката не може, сам се префрла на процесорот (побавно).
-- Моделот (~3 GB) се симнува еднаш при првото отворање.
-- Вклучен е стандардно. Се менува во **Поставки → Опишувач на слики**:
-  Вграден Qwen3-VL, Claude (облак) или Исклучено.
+- Free, and **everything runs on your computer**. Photos never leave it.
+- Uses the graphics card (NVIDIA, AMD or Intel, 6 GB is enough) through DirectML.
+  If the card can't run it, it switches to the processor on its own (slower) and remembers that.
+- Change it in **Settings → Photo describer**: built-in Qwen3-VL, Claude (cloud) or Off.
 
-Покрај тоа, брзото препознавање (SigLIP 2 / CLIP) се користи за паметното пребарување и „Слични слики“:
+### Quick recognition (search and similar photos)
 
-| Брзо препознавање | Прецизност | Големина |
+SigLIP 2 / CLIP is used for free-text search ("dog on the beach") and "Similar photos":
+
+| Quick recognition | Accuracy | Size |
 |---|---|---|
-| Стандарден (OpenAI CLIP) | основна, само англиски | ~155 MB |
-| Напреден (Google SigLIP 2) | добра, мк + англиски | ~400 MB |
-| Голем (SigLIP 2 Large) | многу добра | ~900 MB |
-| Максимален (SigLIP 2 So400m) | најдобра, бавен | ~1,5 GB |
+| Standard (OpenAI CLIP) | basic | ~155 MB |
+| Advanced (Google SigLIP 2) | good, many languages | ~400 MB |
+| Large (SigLIP 2 Large) | very good | ~900 MB |
+| Maximum (SigLIP 2 So400m) | best, slow | ~1.5 GB |
 
-### Claude (најпрецизно)
+A tag is given only when the category is clearly visible. If nothing fits, the photo gets no tag rather than a wrong one.
 
-Поставки → **Claude** → внеси API клуч од console.anthropic.com → избери модел → „Опиши ги сите слики“ или „Само новите слики“.
-Пред почеток ја покажува проценетата цена. Claude пишува и опис на секоја слика (на македонски и англиски) и
-може да додаде свои ознаки за работи што ги нема во листата (на пример „Инокс машини“).
-Се праќа само намалена копија (најмногу 1024 px). Оригиналите остануваат на компјутерот.
+### Claude (cloud, optional)
 
-| Модел | Приближно за 1000 слики |
+Settings → **Claude** → enter an API key from console.anthropic.com → choose a model → "Describe all photos" or "Only new photos".
+It shows the estimated cost before starting. Only a smaller copy (at most 1024 px) is sent. The originals stay on the computer.
+
+| Model | About per 1000 photos |
 |---|---|
-| Claude Opus 5.5 (најпрецизно) | $10 |
+| Claude Opus 5.5 (most accurate) | $10 |
 | Claude Sonnet 5.5 | $5 |
 | Claude Haiku 5.5 | $0.30 |
 
-### Поправи погрешна група
+### Fix a wrong group
 
-Ако некоја група не е точна (на пример во „Музеј“ се слики од инокс машини):
-отвори ја групата → **„Не е точно? Поправи“** → напиши што се всушност сликите (пр. „Инокс машини“)
-и по желба краток опис. Сликите се преместуваат во новата група, погрешната ознака не се враќа,
-новата станува твоја категорија и сличните слики автоматски се средуваат.
-Ако само некои слики се погрешни, избери ги и кликни **„Не се ова“**.
+If a group is wrong (for example "Museum" contains photos of stainless steel machines):
+open the group → **"Not right? Fix it"** → write what the photos really are (e.g. "Stainless steel machines")
+and optionally a short description. The photos move to the new group, the wrong tag never comes back,
+the new one becomes your own category and similar photos are fixed automatically.
+If only some photos are wrong, select them and click **"Not this"**.
 
-### Учи од тебе
+### It learns from you
 
-- **Рачна ознака:** стави ознака на една слика (на пр. „Инокс машини“) и апликацијата сама ја става на многу слични слики.
-  Колку повеќе примери, толку подобро. Погрешна ознака тргни ја со ×, нема да се врати.
-- **Мои категории:** во Поставки додај име и краток опис, на македонски или англиски. Сликите веднаш се оценуваат одново.
+- **Tag by hand:** tag one photo (e.g. "Stainless steel machines") and the app also tags many similar photos.
+  The more examples, the better. Remove a wrong tag with ×, it won't come back.
+- **My categories:** in Settings add a name and a short description. Photos are re-evaluated right away.
 
-## Паметно пребарување
+## Smart search
 
-Во полето за пребарување може да пишуваш слободно, **на македонски или англиски**:
-„куче на плажа“, „роденденска торта“, „dog on the beach“, „снег во планина“.
-Најдобрите совпаѓања се прикажуваат први. Ознаките може да се прикажуваат на македонски или англиски (Поставки).
+Type freely in the search box: "dog on the beach", "birthday cake", "snow in the mountains".
+The best matches are shown first.
 
-## Мои места: Дома, Работа…
+## My places: Home, Work…
 
-Во **Поставки → Мои места** или во прегледот на слика („постави како Дома, Работа…“)
-поставуваш свои места со име и радиус. Сликите снимени таму добиваат тоа име,
-се гледаат во менито „Мои места“ и се користат за имињата на настаните.
-Местото се бира со пребарување адреса (OpenStreetMap) или директно од GPS на слика.
-Ако некоја ознака е погрешна, тргни ја со × во прегледот на сликата. Нема повторно да се појави.
-Може да додаваш и свои ознаки.
+In **Settings → My places**, or in a photo's details ("set as Home, Work…"), set your own places
+with a name and radius. Photos taken there get that name, appear under "My places" and are used for event names.
+The place is chosen by searching an address (OpenStreetMap) or from a photo's GPS.
 
-## Во прегледот на слика
+## What it recognizes
 
-Омилени, ротирање, отворање во друга програма, покажи во папка, бришење,
-промена на датум (сликата се преместува во точниот месец), ознаки, албуми,
-хистограм, мапа и **слични слики**. Клик на сликата ја зумира.
+| What | How |
+|---|---|
+| Date | From the photo, from the file name (`IMG-20230605-WA0012`, `Screenshot_2026…`, `FB_IMG_…`), from the video file |
+| Place | From the photo's GPS, offline: Ohrid, Skopje, Thessaloniki, Athens… |
+| Content | 120+ categories (nature, places, home, work and industry, people, events, sport, food, animals, things, documents), your own categories and learned tags |
+| Source | Camera, WhatsApp, Viber, Facebook / Messenger, Instagram, Telegram, Snapchat, edited photos, internet |
+| Type | Photos, videos, screenshots |
+| Events | Photos from the same period and place become an event automatically, e.g. "Ohrid · Jul 14–16, 2024" |
+| Duplicates | Identical photos are skipped and listed under "Duplicates" |
 
-## Историја на секоја слика
+## Photo details
 
-Во прегледот на слика, делот **Историја** покажува од која оригинална папка е донесена сликата,
-дали е копирана, преместена или увезена, кога е додадена и каде е сега.
-Копчето **„Отвори ја оригиналната папка“** ја отвора папката во Explorer.
-Ако истата слика е пронајдена и на други места (дупликати), тие се наведени со копче „Отвори“.
+Favorite, rotate, open in another program, show in folder, delete, change the date (the photo moves to the right month),
+tags, albums, histogram, map, **similar photos** and **history** (the original folder it came from, copied/moved/imported,
+when it was added, and other copies; "Open the original folder" opens it in Explorer). Click the photo to zoom.
 
-## Деинсталирање
-
-- Start мени → **Фотоархива → Деинсталирај Фотоархива**, или
-- Settings → Apps → **Фотоархива** → Uninstall, или
-- во апликацијата: Поставки → **Деинсталирај ја Фотоархива**.
-
-Деинсталацијата ја брише програмата. Сликите и средената библиотека **не** се бришат.
-На крај прашува дали да се избришат и поставките и моделот за препознавање.
-
-## Каде се сликите
+## Where the photos are
 
 ```
-Pictures\Фотоархива\
+Pictures\Fotoarhiva\
   2024\
-    07 - Јули\
+    07 - July\
       IMG_4000.JPG
-      Видеа\
-      Скриншоти\
-  Корпа\          ← „избришаните“ слики, додека не ги избришеш трајно
-  .fotoarhiva\    ← индекс и мали сликички (скриена папка, не ја бриши)
+      Videos\
+      Screenshots\
+  Trash\          ← "deleted" photos, until you delete them permanently
+  .fotoarhiva\    ← index and thumbnails (hidden folder, don't delete it)
 ```
 
-## Поставки
+## Settings
 
-Запчето горе десно: папки што се следат, место на библиотеката, копирај/премести,
-колку често да проверува, паметно препознавање, икона на Desktop,
-**стартувај со Windows** (работи тивко во позадина) и **исклучи ја апликацијата**.
+The gear at the top right: watched folders, library location, copy/move, how often to check,
+recognition models, photo describer, Claude, my categories, my places, Desktop icon,
+**start with Windows** (runs quietly in the background) and **quit the app**.
 
-## Ако нешто не работи
+## Uninstall
 
-- **Апликацијата не се отвора:** Start мени → Фотоархива → **Фотоархива (безбеден режим)**.
-  Се отвора без препознавање. Во Поставки смени го опишувачот, па стартувај ја нормално.
-- Ако графичката картичка не може да го изврши моделот, Фотоархива сама се префрла на процесорот
-  и тоа го запомнува (може да се пробa повторно со бришење на `qwen3-vl-4b\gpu_failed.txt` во `%LOCALAPPDATA%\Fotoarhiva\models`).
+- Start menu → **Fotoarhiva → Uninstall Fotoarhiva**, or
+- Settings → Apps → **Fotoarhiva** → Uninstall, or
+- in the app: Settings → **Uninstall Fotoarhiva**.
 
-- Стартувај го `start.bat` повторно. Тој сам проверува дали Python е соодветен
-  (64-битен, 3.10–3.14), по потреба инсталира Python 3.12 и Microsoft Visual C++ Runtime,
-  и ги доинсталира деловите што недостасуваат. Ако апликацијата веќе работи, сама се рестартира.
-- Сè што се случува при инсталацијата се запишува во `%LOCALAPPDATA%\Fotoarhiva\install.log`.
-- Записникот на апликацијата е `%LOCALAPPDATA%\Fotoarhiva\fotoarhiva.log`.
-- Ако автоматската инсталација на Python не успее: инсталирај Python 3.12 од
-  https://www.python.org/downloads/ со штиклирано **„Add Python to PATH“**.
+Uninstalling removes the program. Your photos and the organized library are **not** deleted.
+At the end it asks whether to also delete the settings and the recognition models.
 
-## Безбедност
+## If something doesn't work
 
-- Апликацијата е достапна само на твојот компјутер (127.0.0.1) и не прима команди од други веб страници.
-- Во режим „копирај“ оригиналите никогаш не се менуваат.
-- Ротирањето не ја менува оригиналната датотека.
-- Трајно бришење од дискот има само во Корпа, со потврда.
+- **The app doesn't open:** Start menu → Fotoarhiva → **Fotoarhiva (safe mode)**.
+  It opens without recognition. Change the describer in Settings, then start it normally.
+- If the graphics card can't run the model, Fotoarhiva switches to the processor and remembers it
+  (to try the card again, delete `qwen3-vl-4b\gpu_failed.txt` in `%LOCALAPPDATA%\Fotoarhiva\models`).
+- The app log is `%LOCALAPPDATA%\Fotoarhiva\fotoarhiva.log`.
+
+## Privacy and safety
+
+- The app is only reachable from your own computer (127.0.0.1) and doesn't accept commands from other web pages.
+- In "copy" mode the originals are never changed.
+- Rotating doesn't change the original file.
+- Permanent deletion from the disk only happens in Trash, after confirmation.

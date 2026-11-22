@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Фотоархива — локална апликација што ги собира сите слики на едно место.
+"""Fotoarhiva — a local app that gathers all your photos in one place.
 
-Стартување: start.bat (Windows) или ./start.sh. Сè друго се поставува во самата апликација.
-Команди за напредни корисници:
-  python fotoarhiva.py run [--no-browser]   # сервер + автоматско скенирање (стандардно)
-  python fotoarhiva.py organize             # само едно скенирање, без интерфејс
-  python fotoarhiva.py shortcut             # направи кратенка на Desktop (Windows)
+Start: the installer (Windows) or ./start.sh. Everything else is set up inside the app.
+Commands for advanced users:
+  python fotoarhiva.py run [--no-browser]   # server + automatic scanning (default)
+  python fotoarhiva.py organize             # a single scan, no interface
+  python fotoarhiva.py shortcut             # create a Desktop shortcut (Windows)
 """
 import hashlib, json, math, os, re, shutil, sqlite3, struct, sys, threading, time, uuid, webbrowser, mimetypes, subprocess, platform
 from datetime import datetime
@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlparse, unquote, parse_qs
 
 APP_DIR = Path(__file__).resolve().parent
-# Поставки, модел и записник: во %LOCALAPPDATA%\Fotoarhiva на Windows (остануваат при надградба)
+# Settings, models and log: in %LOCALAPPDATA%\Fotoarhiva on Windows (kept across upgrades)
 if os.environ.get("FOTOARHIVA_DATA"):
     DATA_DIR = Path(os.environ["FOTOARHIVA_DATA"])
 elif os.name == "nt" and os.environ.get("LOCALAPPDATA"):
@@ -23,7 +23,7 @@ else:
     DATA_DIR = APP_DIR
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 LOG_PATH = DATA_DIR / "fotoarhiva.log"
-if sys.stdout is None or sys.stderr is None:  # стартувано без конзола (pythonw) → логирај во датотека
+if sys.stdout is None or sys.stderr is None:  # started without a console (pythonw) → log to a file
     _log = open(LOG_PATH, "a", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = _log
 try:
@@ -31,11 +31,11 @@ try:
 except Exception:
     pass
 os.environ["FOTOARHIVA_LOG"] = str(LOG_PATH)
-SAFE = "--safe" in sys.argv   # безбеден режим: без модели, за апликацијата секогаш да се отвори
+SAFE = "--safe" in sys.argv   # safe mode: no models, so the app can always open
 try:
     import faulthandler
     _crash_log = open(LOG_PATH, "a", encoding="utf-8")
-    faulthandler.enable(_crash_log)  # ако нешто падне во C/C++ делот, остава трага во записникот
+    faulthandler.enable(_crash_log)  # if something crashes in the C/C++ part, leave a trace in the log
 except Exception:
     pass
 
@@ -51,13 +51,13 @@ except Exception:
 
 sys.path.insert(0, str(APP_DIR))
 from places import Places  # noqa: E402
-from ai import AI, MODELS, DEFAULT_MODEL, LABELS, MK2EN, labels_public  # noqa: E402
+from ai import AI, MODELS, DEFAULT_MODEL, LABELS, MK2EN, BUILTIN, labels_public  # noqa: E402
 from cloud import CloudAI, CLOUD_MODELS, DEFAULT_CLOUD_MODEL  # noqa: E402
 from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.4"
+VERSION = "2.5"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -65,7 +65,7 @@ VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".3gp", ".webm", ".mts"}
 BROWSER_NATIVE = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".mp4", ".m4v", ".webm", ".mov"}
 SKIP_DIRS = {"node_modules", "AppData", "Library", "$RECYCLE.BIN", "System Volume Information", "__pycache__", ".git",
              "Windows", "Program Files", "Program Files (x86)", "ProgramData", ".venv", "site-packages"}
-MONTHS = ["Јануари", "Февруари", "Март", "Април", "Мај", "Јуни", "Јули", "Август", "Септември", "Октомври", "Ноември", "Декември"]
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
 THUMB = 480
 MIN_FILE_AGE = 10
 
@@ -82,13 +82,13 @@ def find_ffmpeg():
 
 
 FFMPEG = find_ffmpeg()
-NOWIN = {"creationflags": 0x08000000} if IS_WIN else {}  # без црни прозорчиња за ffmpeg/powershell
+NOWIN = {"creationflags": 0x08000000} if IS_WIN else {}  # no black console windows for ffmpeg/powershell
 
 
 # ----------------------------------------------------------------- config
 def default_library():
     pics = Path.home() / "Pictures"
-    return str((pics if pics.exists() else Path.home()) / "Фотоархива")
+    return str((pics if pics.exists() else Path.home()) / "Fotoarhiva")
 
 
 def load_config():
@@ -97,7 +97,7 @@ def load_config():
         try:
             cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         except Exception as e:
-            print("config.json е оштетен, користам стандардни поставки:", e)
+            print("config.json is damaged, using default settings:", e)
     cfg.setdefault("library", default_library())
     cfg.setdefault("sources", [])
     cfg.setdefault("mode", "copy")
@@ -107,7 +107,6 @@ def load_config():
     cfg.setdefault("ai", True)
     cfg.setdefault("model", DEFAULT_MODEL)
     cfg.setdefault("my_places", [])
-    cfg.setdefault("tag_lang", "mk")
     cfg.setdefault("describer", "local")  # off | local | cloud
     return cfg
 
@@ -133,7 +132,7 @@ def date_from_name(name):
             return datetime(int(m[1]), int(m[2]), int(m[3]), int(m[4] or 12), int(m[5] or 0), int(m[6] or 0))
         except ValueError:
             pass
-    m = re.search(r"(?<!\d)(1[3-9]\d{11})(?!\d)", name)  # unix милисекунди, пр. FB_IMG_1690000000000
+    m = re.search(r"(?<!\d)(1[3-9]\d{11})(?!\d)", name)  # unix milliseconds, e.g. FB_IMG_1690000000000
     if m:
         try:
             d = datetime.fromtimestamp(int(m[1]) / 1000)
@@ -145,7 +144,7 @@ def date_from_name(name):
 
 
 def video_date(p: Path):
-    """Датум на снимање од MP4/MOV (mvhd атом)."""
+    """Capture date from MP4/MOV (mvhd atom)."""
     try:
         with open(p, "rb") as f:
             size = p.stat().st_size
@@ -187,9 +186,9 @@ EDITORS = ("snapseed", "picsart", "lightroom", "photoshop", "canva", "vsco", "gi
 def detect_source(name, path, cam, software=""):
     n, p = name.lower(), str(path).lower().replace("\\", "/")
     sw = (software or "").lower()
-    if (any(k in n for k in ("screenshot", "screen shot", "screen_shot", "снимка на екран", "screencapture", "snip"))
-            or "/screenshots/" in p or "/скриншоти/" in p or n.startswith("capture")):
-        return "Скриншот"
+    if (any(k in n for k in ("screenshot", "screen shot", "screen_shot", "screen capture", "screencapture", "snip"))
+            or "/screenshots/" in p or "/screenshots/" in p or n.startswith("capture")):
+        return "Screenshot"
     if re.search(r"(img|vid|aud|ptt|stk)-\d{8}-wa\d+", n) or "whatsapp" in p:
         return "WhatsApp"
     if "viber" in p or n.startswith("viber_"):
@@ -203,18 +202,18 @@ def detect_source(name, path, cam, software=""):
     if "snapchat" in p or n.startswith("snapchat"):
         return "Snapchat"
     if any(e in sw for e in EDITORS) or any(e in p for e in EDITORS) or "edited" in n or "_edit" in n:
-        return "Уредени"
+        return "Edited"
     if cam:
-        return "Камера"
-    if "/downloads/" in p or "/преземања/" in p or "/download/" in p:
-        return "Интернет"
-    return "Друго"
+        return "Camera"
+    if "/downloads/" in p or "/downloads/" in p or "/download/" in p:
+        return "Internet"
+    return "Other"
 
 
 def detect_kind(ext, source, cam, w, h):
     if ext in VIDEO_EXT:
         return "video"
-    if source == "Скриншот":
+    if source == "Screenshot":
         return "screenshot"
     if ext == ".png" and not cam and w and h:
         r = max(w, h) / min(w, h)
@@ -231,13 +230,47 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def geocode(q):
-    """Пребарување адреса преку OpenStreetMap (Nominatim). Само кога корисникот бара место."""
+    """Address search via OpenStreetMap (Nominatim). Only when the user searches for a place."""
     url = "https://nominatim.openstreetmap.org/search?" + urllib.parse.urlencode(
         {"q": q, "format": "json", "limit": 6, "accept-language": "mk,en", "addressdetails": 0})
     req = urllib.request.Request(url, headers={"User-Agent": "Fotoarhiva/2.1 (desktop photo organizer)"})
     with urllib.request.urlopen(req, timeout=20) as r:
         rows = json.loads(r.read().decode("utf-8"))
     return [{"name": x.get("display_name", ""), "lat": float(x["lat"]), "lon": float(x["lon"])} for x in rows]
+
+
+# ----------------------------------------------------------------- migration from the Macedonian versions (≤ 2.4)
+OLD_LIB_NAME = "\u0424\u043e\u0442\u043e\u0430\u0440\u0445\u0438\u0432\u0430"  # old default library folder name
+OLD_MONTHS = ["Јануари", "Февруари", "Март", "Април", "Мај", "Јуни", "Јули", "Август", "Септември", "Октомври", "Ноември", "Декември"]
+OLD_FOLDERS = {"Видеа": "Videos", "Скриншоти": "Screenshots", "Корпа": "Trash"}
+OLD_PLACES = {"Дома": "Home", "Работа": "Work", "Викендица": "Holiday home", "Кај родители": "Parents", "Училиште": "School"}
+OLD_APPS = {"Скриншот": "Screenshot", "Уредени": "Edited", "Камера": "Camera", "Интернет": "Internet", "Друго": "Other"}
+
+
+def english_rel(rel):
+    parts = rel.split("/")
+    out = []
+    for part in parts[:-1]:
+        m = re.match(r"^(\d\d) - (.+)$", part)
+        if m and m.group(2) in OLD_MONTHS:
+            part = f"{m.group(1)} - {MONTHS[OLD_MONTHS.index(m.group(2))]}"
+        out.append(OLD_FOLDERS.get(part, part))
+    return "/".join(out + parts[-1:])
+
+
+def rename_old_library(cfg):
+    """The old default library folder had a Macedonian name; rename it once to "Fotoarhiva"."""
+    lib = Path(os.path.expanduser(cfg.get("library", "")))
+    if lib.name == OLD_LIB_NAME and lib.exists():
+        new = lib.with_name("Fotoarhiva")
+        if not new.exists():
+            try:
+                lib.rename(new)
+                cfg["library"] = str(new)
+                save_config(cfg)
+                print("Library folder renamed to", new)
+            except OSError as e:
+                print("Could not rename the library folder (it stays as it is):", e)
 
 
 # ----------------------------------------------------------------- library
@@ -250,7 +283,7 @@ class Library:
         self.thumbs = self.meta / "thumbs"
         self.previews = self.meta / "previews"
         self.incoming = self.meta / "incoming"
-        self.trash_dir = self.root / "Корпа"
+        self.trash_dir = self.root / "Trash"
         for p in (self.root, self.meta, self.thumbs, self.previews, self.incoming):
             p.mkdir(parents=True, exist_ok=True)
         if IS_WIN:
@@ -263,6 +296,7 @@ class Library:
         self.db = sqlite3.connect(self.meta / "index.db", check_same_thread=False, timeout=30)
         self.db.row_factory = sqlite3.Row
         self.migrate()
+        self.migrate_english()
         self.emb_cache = None
         self.status = {"state": "idle", "scanned": 0, "total": 0, "added": 0, "duplicates": 0, "skipped": 0, "errors": 0,
                        "current": "", "version": 0, "last_scan": None, "ai_pending": 0, "ai_done": 0}
@@ -293,12 +327,64 @@ class Library:
                 self.db.execute("ALTER TABLE seen ADD COLUMN dup_of INTEGER")
             except sqlite3.OperationalError:
                 pass
-            # пополни го новото за постари бази
+            # fill in the new fields for older databases
             for r in self.db.execute("SELECT id,name,path,cam,lat,lon,app,place FROM photos WHERE app IS NULL OR (lat IS NOT NULL AND place IS NULL)").fetchall():
                 app = r["app"] or detect_source(r["name"], r["path"], r["cam"])
                 place, country = self.places.lookup(r["lat"], r["lon"]) if r["lat"] is not None else (None, None)
                 self.db.execute("UPDATE photos SET app=?, place=?, country=? WHERE id=?", (app, place, country, r["id"]))
             self.db.commit()
+
+    def migrate_english(self):
+        """One-time move from the Macedonian versions: folder names, tags, sources, places and captions."""
+        with self.db_lock:
+            self.db.execute("CREATE TABLE IF NOT EXISTS meta(k TEXT PRIMARY KEY, v TEXT)")
+            if self.db.execute("SELECT 1 FROM meta WHERE k='lang' AND v='en'").fetchone():
+                return
+            moved = 0
+            if self.db.execute("SELECT 1 FROM photos LIMIT 1").fetchone():
+                print("Converting the library to English…")
+            for r in self.db.execute("SELECT id, path FROM photos").fetchall():
+                new = english_rel(r["path"])
+                if new == r["path"]:
+                    continue
+                src, dst = self.abs(r["path"]), self.abs(new)
+                try:
+                    if src.exists():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        if dst.exists():
+                            dst = self.unique_dest(dst.parent, dst.name)
+                        shutil.move(str(src), str(dst))
+                    self.db.execute("UPDATE photos SET path=? WHERE id=?", (self.rel(dst), r["id"]))
+                    moved += 1
+                except OSError as e:
+                    print("  ! could not move", src, e)
+            for table in ("tags", "hidden_tags"):
+                for mk, en in MK2EN.items():
+                    if table == "tags":
+                        self.db.execute("INSERT OR IGNORE INTO tags SELECT photo_id, ?, score, by FROM tags WHERE tag=?", (en, mk))
+                    else:
+                        self.db.execute("INSERT OR IGNORE INTO hidden_tags SELECT photo_id, ? FROM hidden_tags WHERE tag=?", (en, mk))
+                    self.db.execute(f"DELETE FROM {table} WHERE tag=?", (mk,))
+            for mk, en in OLD_APPS.items():
+                self.db.execute("UPDATE photos SET app=? WHERE app=?", (en, mk))
+            self.db.execute("UPDATE photos SET source='Imported' WHERE source=?", ("Увезени",))
+            for r in self.db.execute("SELECT id, lat, lon FROM photos WHERE lat IS NOT NULL").fetchall():
+                place, country = self.places.lookup(r["lat"], r["lon"])
+                self.db.execute("UPDATE photos SET place=?, country=? WHERE id=?", (place, country, r["id"]))
+            for r in self.db.execute("SELECT id, caption FROM photos WHERE caption LIKE '% | %'").fetchall():
+                self.db.execute("UPDATE photos SET caption=? WHERE id=?", (r["caption"].split(" | ", 1)[1], r["id"]))
+            self.db.execute("INSERT OR REPLACE INTO meta VALUES('lang','en')")
+            self.db.commit()
+        # remove the now empty old folders
+        for dirpath, dirnames, filenames in os.walk(self.root, topdown=False):
+            d = Path(dirpath)
+            if d != self.root and re.search("[А-Яа-я]", d.name) and not any(d.iterdir()):
+                try:
+                    d.rmdir()
+                except OSError:
+                    pass
+        if moved:
+            print(f"Done: {moved} files moved into English folder names.")
 
     # ---- helpers
     def rel(self, p: Path):
@@ -318,9 +404,9 @@ class Library:
     def dest_dir_for(self, taken: datetime, kind: str):
         d = self.root / f"{taken.year}" / f"{taken.month:02d} - {MONTHS[taken.month - 1]}"
         if kind == "video":
-            d = d / "Видеа"
+            d = d / "Videos"
         elif kind == "screenshot":
-            d = d / "Скриншоти"
+            d = d / "Screenshots"
         return d
 
     @staticmethod
@@ -405,7 +491,7 @@ class Library:
                 t.save(out, "JPEG", quality=82)
             return True
         except Exception as e:
-            print(f"  ! Нема сликичка за {f.name}: {e}")
+            print(f"  ! No thumbnail for {f.name}: {e}")
             return False
 
     # ---- scanning
@@ -432,7 +518,7 @@ class Library:
                     self.ingest(src, str(root_src), st, orig=str(src), mode=self.cfg.get("mode", "copy"))
                 except Exception as e:
                     self.status["errors"] += 1
-                    print(f"  ! Проблем со {src}: {e}")
+                    print(f"  ! Problem with {src}: {e}")
         finally:
             self.status.update(state="idle", current="", last_scan=datetime.now().isoformat(timespec="seconds"))
             self.bump()
@@ -452,13 +538,13 @@ class Library:
                     ext = Path(fn).suffix.lower()
                     if (ext in IMAGE_EXT or ext in VIDEO_EXT) and not fn.startswith("._"):
                         low = fn.lower()
-                        copyish = int(any(k in low for k in ("copy", "копија", "(1)", "(2)", "(3)")))
+                        copyish = int(any(k in low for k in ("copy", "copy", "(1)", "(2)", "(3)")))
                         out.append(((si, copyish, str(dp / fn).lower()), dp / fn, sp))
         out.sort(key=lambda t: t[0])
         return [(f, s) for _, f, s in out]
 
     def ingest(self, src: Path, root_src: str, st, orig: str, mode="copy", record_seen=True):
-        """Додај една датотека. Враќа 'added' или 'duplicate'."""
+        """Add one file. Returns 'added' or 'duplicate'."""
         h = self.file_hash(src)
         with self.db_lock:
             dup = self.db.execute("SELECT id FROM photos WHERE hash=?", (h,)).fetchone()
@@ -477,7 +563,7 @@ class Library:
             try:
                 taken, w, h_, cam, lat, lon, software = self.read_image(src)
             except Exception as e:
-                print(f"  ! Не можам да ја прочитам {name}: {e}")
+                print(f"  ! Cannot read {name}: {e}")
         elif ext in (".mp4", ".mov", ".m4v", ".3gp"):
             taken = video_date(src)
         taken = taken or date_from_name(name) or datetime.fromtimestamp(min(st.st_mtime, getattr(st, "st_ctime", st.st_mtime)))
@@ -512,7 +598,7 @@ class Library:
         os.utime(tmp, (mtime, mtime))
         st = tmp.stat()
         try:
-            res, pid = self.ingest(tmp, "Увезени", st, orig=name, mode="move", record_seen=False)
+            res, pid = self.ingest(tmp, "Imported", st, orig=name, mode="move", record_seen=False)
         finally:
             if tmp.exists():
                 tmp.unlink()
@@ -548,12 +634,12 @@ class Library:
                     self._write_ai_tags(pid, tags)
                     self.db.execute("INSERT OR REPLACE INTO emb VALUES(?,?)", (pid, e.astype(np.float16).tobytes()))
                     top = tags[0][0] if tags else ""
-                    # ВИ поправа скриншот само кога нема податоци од камера ниту име „Screenshot“
-                    if not r["cam"] and r["kind"] != "video" and r["app"] != "Скриншот":
+                    # AI fixes the screenshot type only when there is no camera data and no 'Screenshot' name
+                    if not r["cam"] and r["kind"] != "video" and r["app"] != "Screenshot":
                         new_kind = r["kind"]
-                        if top == "Скриншот":
+                        if top == "Screenshot":
                             new_kind = "screenshot"
-                        elif r["kind"] == "screenshot" and top and top not in ("Документи", "Мемиња и графики", "Мапа", "Белешки и табла"):
+                        elif r["kind"] == "screenshot" and top and top not in ("Documents", "Memes & graphics", "Map", "Notes"):
                             new_kind = "photo"
                         if new_kind != r["kind"]:
                             self._move_kind(pid, r["path"], datetime.fromisoformat(r["taken"]), new_kind)
@@ -569,15 +655,15 @@ class Library:
         hidden = {x["tag"] for x in self.db.execute("SELECT tag FROM hidden_tags WHERE photo_id=?", (pid,))}
         self.db.execute("DELETE FROM tags WHERE photo_id=? AND by='ai'", (pid,))
         if self.db.execute("SELECT 1 FROM photos WHERE id=? AND cloud_done=1", (pid,)).fetchone():
-            return  # Claude веќе ја опишал: неговите ознаки имаат предност
+            return  # a describer already described it: its tags take priority
         user = {x["tag"] for x in self.db.execute("SELECT tag FROM tags WHERE photo_id=? AND by!='ai'", (pid,))}
         for t, sc in tags:
-            if t.startswith("_") or t == "Скриншот" or t in hidden or t in user:
-                continue  # скриншотите се посебен тип; одбиените ознаки не се враќаат
+            if t.startswith("_") or t == "Screenshot" or t in hidden or t in user:
+                continue  # screenshots are a separate type; rejected tags never come back
             self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, sc, "ai"))
 
     def reclassify(self, ai):
-        """Нови категории или нова логика: ознаките се пресметуваат од зачуваните вектори, без повторна анализа."""
+        """New categories or new logic: tags are recomputed from the stored vectors, without a new analysis."""
         import numpy as np
         ids, M = self.emb_matrix()
         if not len(ids) or ai.L is None or M.shape[1] != ai.L.shape[1]:
@@ -591,7 +677,7 @@ class Library:
         self.learn_all()
         self.bump()
 
-    # ---- учење од корисникот: рачно ставена ознака се пренесува на многу слични слики
+    # ---- learning from the user: a hand-made tag spreads to many similar photos
     def learn(self, tag):
         import numpy as np
         ids, M = self.emb_matrix()
@@ -609,7 +695,7 @@ class Library:
                 s = M @ proto
                 ss = s[[i for i in range(len(ids)) if int(ids[i]) not in set(ex)]] if len(ids) > len(rows) else s
                 mu, sd = float(ss.mean()), float(ss.std() or 1e-6)
-                # праг: многу над просекот на библиотеката; со 3+ примери и блиску до најразличниот пример
+                # threshold: well above the library average; with 3+ examples, close to the most different example
                 own = float((P @ proto).min()) - 0.05 if len(rows) >= 3 else -1.0
                 thr = max(min(mu + 2.5 * sd, 0.92), own, 0.60)
                 hits = [i for i in np.argsort(-s) if s[i] >= thr][:max(30, 40 * len(rows))]
@@ -627,7 +713,7 @@ class Library:
             self.learn(t)
 
     def apply_learned(self, pids):
-        """Новите слики ги добиваат и ознаките што си ги научил апликацијата."""
+        """New photos also get the tags the app has learned."""
         import numpy as np
         if not pids:
             return
@@ -636,13 +722,13 @@ class Library:
         for t in tags:
             self.learn(t)
 
-    # ---- Claude (облак)
+    # ---- describers (Claude or the built-in Qwen3-VL)
     def cloud_pending(self):
         with self.db_lock:
             return self.db.execute("SELECT COUNT(*) c FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video'").fetchone()["c"]
 
     def cloud_step(self, cloud, labels, workers=3):
-        """Опишување со „опишувач“: Claude (облак) или вградениот Qwen3-VL. Ист облик на резултат."""
+        """Describing with a describer: Claude (cloud) or the built-in Qwen3-VL. Same result shape."""
         with self.db_lock:
             rows = self.db.execute("SELECT id,path,kind,cam,app,taken,rot FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video' LIMIT ?",
                                    (workers * 2,)).fetchall()
@@ -656,7 +742,7 @@ class Library:
             try:
                 jpeg = CloudAI.image_bytes(f, r["rot"] or 0)
             except Exception:
-                jpeg = CloudAI.image_bytes(self.thumbs / f"{r['id']}.jpg")  # RAW и слично: преку сликичката
+                jpeg = CloudAI.image_bytes(self.thumbs / f"{r['id']}.jpg")  # RAW and similar: via the thumbnail
             return r, cloud.describe(jpeg, labels)
 
         with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -665,7 +751,7 @@ class Library:
                 try:
                     results.append(fut.result())
                 except Exception as e:
-                    print("Опишување:", e)
+                    print("Describing:", e)
                     if cloud.state == "error":
                         return False
         with self.db_lock:
@@ -680,12 +766,12 @@ class Library:
                 tags = [t.strip() for t in (d.get("tags") or []) if t.strip() in known][:5]
                 tags += [t.strip()[:40] for t in (d.get("new_tags") or []) if t.strip()][:3]
                 for n, t in enumerate(dict.fromkeys(tags)):
-                    if t not in hidden and t not in user and t != "Скриншот":
+                    if t not in hidden and t not in user and t != "Screenshot":
                         self.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, t, 10.0 - n, by))
                 cap = " | ".join(x for x in (d.get("caption_mk", "").strip(), d.get("caption_en", "").strip()) if x)
                 self.db.execute("UPDATE photos SET caption=?, cloud_done=1 WHERE id=?", (cap[:500], pid))
                 k = d.get("kind")
-                if not r["cam"] and r["app"] != "Скриншот" and r["kind"] != "video" and k in ("photo", "screenshot", "document"):
+                if not r["cam"] and r["app"] != "Screenshot" and r["kind"] != "video" and k in ("photo", "screenshot", "document"):
                     nk = "screenshot" if k == "screenshot" else "photo"
                     if nk != r["kind"]:
                         self._move_kind(pid, r["path"], datetime.fromisoformat(r["taken"]), nk)
@@ -698,7 +784,7 @@ class Library:
         dest_dir = self.dest_dir_for(taken, kind)
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = self.unique_dest(dest_dir, src.name)
-        if src.exists() and not rel_path.startswith("Корпа/"):
+        if src.exists() and not rel_path.startswith("Trash/"):
             shutil.move(str(src), str(dest))
             self.db.execute("UPDATE photos SET kind=?, path=? WHERE id=?", (kind, self.rel(dest), pid))
         else:
@@ -733,7 +819,7 @@ class Library:
             if lat is None or not mine:
                 return None
             best, br = None, 1e18
-            for m in mine:  # ако местата се преклопуваат, победува помалото (пр. Работа пред Град)
+            for m in mine:  # if places overlap, the smaller one wins (e.g. Work before City)
                 r = float(m.get("radius", 300))
                 if haversine(lat, lon, m["lat"], m["lon"]) <= r and r < br:
                     best, br = m["name"], r
@@ -848,7 +934,7 @@ class Library:
         self.bump()
 
     def _learn_soon(self, tag):
-        # повеќе ознаки одеднаш (избор на многу слики) → едно учење по ознака
+        # many tags at once (many photos selected) → one learning run per tag
         self._pending_learn = getattr(self, "_pending_learn", set())
         if tag in self._pending_learn:
             return
@@ -859,11 +945,11 @@ class Library:
             try:
                 self.learn(tag)
             except Exception as e:
-                print("Учење:", e)
+                print("Learning:", e)
         threading.Thread(target=run, daemon=True).start()
 
     def reset_ai(self):
-        """Ги брише старите ВИ-ознаки и вектори (нов модел или нови категории) и ги анализира сликите одново."""
+        """Deletes the old AI tags and vectors (new model or new categories) and analyzes the photos again."""
         with self.db_lock:
             self.db.execute("DELETE FROM tags WHERE by='ai'")
             self.db.execute("DELETE FROM emb")
@@ -883,7 +969,7 @@ class Library:
                 self.emb_cache = (ids, M)
         return self.emb_cache
 
-    def semantic_search(self, qv, limit=300):
+    def semantic_search(self, qv, limit=300, min_sim=-1.0):
         import numpy as np
         ids, M = self.emb_matrix()
         if not len(ids) or M.shape[1] != qv.shape[0]:
@@ -892,7 +978,10 @@ class Library:
         mu, sd = float(s.mean()), float(s.std() or 1e-6)
         order = np.argsort(-s)[:limit]
         top = float(s[order[0]])
-        cut = max(mu + 1.6 * sd, top - 6 * sd if len(ids) > 20 else -1)
+        if len(ids) > 20:
+            cut = max(mu + 1.6 * sd, top - 6 * sd)
+        else:  # few photos: z-scores stay small, so keep the clearly above-average ones
+            cut = max(mu + 0.5 * sd, top - 0.08, min_sim)
         return [{"id": int(ids[i]), "score": round(float((s[i] - mu) / sd), 2)} for i in order if s[i] >= cut]
 
     def reanalyze(self):
@@ -911,18 +1000,18 @@ class Library:
         return out
 
     def history(self, pid):
-        """Од каде дошла сликата: оригинална локација, начин, датум на додавање и други копии."""
+        """Where the photo came from: original location, method, date added and other copies."""
         with self.db_lock:
             p = self.db.execute("SELECT id,name,path,orig,source,added,how FROM photos WHERE id=?", (pid,)).fetchone()
             if not p:
                 return None
             copies = [r["path"] for r in self.db.execute(
                 "SELECT path FROM seen WHERE dup_of=? AND result='duplicate' ORDER BY path", (pid,))]
-        how = p["how"] or ("upload" if p["source"] == "Увезени" else self.cfg.get("mode", "copy"))
+        how = p["how"] or ("upload" if p["source"] == "Imported" else self.cfg.get("mode", "copy"))
         orig = p["orig"] or ""
         has_path = how != "upload" and (os.sep in orig or "/" in orig or "\\" in orig)
         return {"orig": orig if has_path else "", "upload_name": orig if not has_path else "", "how": how,
-                "added": p["added"], "root": p["source"] if p["source"] != "Увезени" else "",
+                "added": p["added"], "root": p["source"] if p["source"] != "Imported" else "",
                 "orig_exists": bool(has_path and Path(orig).exists()),
                 "orig_dir_exists": bool(has_path and Path(orig).parent.exists()),
                 "copies": [{"path": c, "exists": Path(c).exists()} for c in copies[:50]], "copies_total": len(copies),
@@ -947,11 +1036,11 @@ def open_path(f: Path, select=False):
         else:
             subprocess.Popen(["xdg-open", str(f.parent if select else f)])
     except Exception as e:
-        print("Не можам да отворам:", e)
+        print("Cannot open:", e)
 
 
-def pick_folder_dialog(title="Избери папка"):
-    """Вистински Windows/Mac прозорец за избор на папка (tkinter во посебен процес)."""
+def pick_folder_dialog(title="Choose a folder"):
+    """A real Windows/Mac folder picker (tkinter in a separate process)."""
     code = ("import tkinter as tk, tkinter.filedialog as fd, sys\n"
             "r=tk.Tk(); r.withdraw(); r.attributes('-topmost', True); r.lift(); r.focus_force()\n"
             f"p=fd.askdirectory(parent=r, title={title!r}, mustexist=True)\n"
@@ -961,7 +1050,7 @@ def pick_folder_dialog(title="Избери папка"):
         exe = exe[:-5] + ".exe"
     r = subprocess.run([exe, "-c", code], capture_output=True, text=True, timeout=600, **NOWIN)
     if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "дијалогот не е достапен")
+        raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "the dialog is not available")
     return r.stdout.strip() or None
 
 
@@ -972,12 +1061,12 @@ def list_roots():
         for d in string.ascii_uppercase:
             p = f"{d}:\\"
             if os.path.exists(p):
-                roots.append({"name": f"Диск {d}:", "path": p})
+                roots.append({"name": f"Drive {d}:", "path": p})
     else:
         roots.append({"name": "/", "path": "/"})
     home = Path.home()
-    for label, p in (("Домашна папка", home), ("Слики", home / "Pictures"), ("Desktop", home / "Desktop"),
-                     ("Преземања", home / "Downloads"), ("Документи", home / "Documents"), ("OneDrive", home / "OneDrive")):
+    for label, p in (("Home folder", home), ("Pictures", home / "Pictures"), ("Desktop", home / "Desktop"),
+                     ("Downloads", home / "Downloads"), ("Documents", home / "Documents"), ("OneDrive", home / "OneDrive")):
         if p.exists():
             roots.append({"name": label, "path": str(p)})
     return roots
@@ -1006,7 +1095,7 @@ def count_media(p: Path, budget=1.5):
     n, t0 = 0, time.time()
     try:
         for dirpath, dirnames, filenames in os.walk(p):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS and d != "Фотоархива"]
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in SKIP_DIRS and d not in ("Fotoarhiva", OLD_LIB_NAME)]
             n += sum(1 for f in filenames if Path(f).suffix.lower() in IMAGE_EXT or Path(f).suffix.lower() in VIDEO_EXT)
             if time.time() - t0 > budget:
                 return n, True
@@ -1017,15 +1106,15 @@ def count_media(p: Path, budget=1.5):
 
 def suggest_folders(library):
     home = Path.home()
-    cands = [home / "Pictures", home / "Слики", home / "Downloads", home / "Desktop", home / "Documents", home / "Videos",
-             home / "OneDrive" / "Pictures", home / "OneDrive" / "Слики", home / "OneDrive" / "Desktop",
+    cands = [home / "Pictures", home / "Pictures", home / "Downloads", home / "Desktop", home / "Documents", home / "Videos",
+             home / "OneDrive" / "Pictures", home / "OneDrive" / "Pictures", home / "OneDrive" / "Desktop",
              home / "Dropbox" / "Camera Uploads", home / "Google Drive"]
     if IS_WIN:
         import string
-        for d in string.ascii_uppercase[3:]:  # D: E: … (надворешни дискови, картички)
+        for d in string.ascii_uppercase[3:]:  # D: E: … (external drives, memory cards)
             r = Path(f"{d}:\\")
             if r.exists():
-                for sub in ("DCIM", "Photos", "Слики", "Pictures", "Фотографии", "Slike"):
+                for sub in ("DCIM", "Photos", "Pictures", "Pictures", "Photos", "Slike"):
                     if (r / sub).exists():
                         cands.append(r / sub)
     out, seen = [], set()
@@ -1080,7 +1169,7 @@ def create_lnk(lnk: Path, args=""):
           f"$s.TargetPath='{q(pythonw_exe())}';"
           f"$s.Arguments='\"{q(script)}\" run {args}';"
           f"$s.WorkingDirectory='{q(APP_DIR)}';"
-          f"$s.IconLocation='{q(ico)}';$s.Description='Фотоархива';$s.Save()")
+          f"$s.IconLocation='{q(ico)}';$s.Description='Fotoarhiva';$s.Save()")
     r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
                        capture_output=True, text=True, timeout=60, **NOWIN)
     if r.returncode != 0:
@@ -1092,16 +1181,16 @@ def uninstaller():
     return u if IS_WIN and u.exists() else None
 
 
-def startup_lnk():
-    return win_folder("Startup") / "Фотоархива.lnk"
+def startup_lnk(old=False):
+    return win_folder("Startup") / ((OLD_LIB_NAME if old else "Fotoarhiva") + ".lnk")
 
 
 def create_shortcuts():
     if not IS_WIN:
-        return "Кратенки се прават само на Windows."
-    create_lnk(win_folder("Desktop") / "Фотоархива.lnk")
+        return "Shortcuts are only made on Windows."
+    create_lnk(win_folder("Desktop") / "Fotoarhiva.lnk")
     try:
-        create_lnk(win_folder("Programs") / "Фотоархива.lnk")
+        create_lnk(win_folder("Programs") / "Fotoarhiva.lnk")
     except Exception:
         pass
     return "ok"
@@ -1109,8 +1198,10 @@ def create_shortcuts():
 
 def set_autostart(on):
     if not IS_WIN:
-        return "Достапно само на Windows."
-    lnk = startup_lnk()
+        return "Only available on Windows."
+    lnk, old = startup_lnk(), startup_lnk(old=True)
+    if old.exists():
+        old.unlink()  # shortcut from the Macedonian versions
     if on:
         create_lnk(lnk, "--no-browser")
     elif lnk.exists():
@@ -1120,7 +1211,7 @@ def set_autostart(on):
 
 def autostart_on():
     try:
-        return IS_WIN and startup_lnk().exists()
+        return IS_WIN and (startup_lnk().exists() or startup_lnk(old=True).exists())
     except Exception:
         return False
 
@@ -1129,9 +1220,13 @@ def autostart_on():
 class App:
     def __init__(self):
         self.cfg = load_config()
+        rename_old_library(self.cfg)
+        self.cfg.pop("tag_lang", None)
+        for m in self.cfg.get("my_places", []):  # the old default names of my places
+            m["name"] = OLD_PLACES.get(m.get("name"), m.get("name"))
         self.places = Places()
         self.lib = Library(self.cfg, self.places)
-        old = DATA_DIR / "models" / "vision.onnx"  # модел од верзија 2.0
+        old = DATA_DIR / "models" / "vision.onnx"  # model from version 2.0
         if old.exists():
             for f in ("vision.onnx", "text.onnx", "tokenizer.json"):
                 try:
@@ -1142,13 +1237,13 @@ class App:
         self.ai.set_custom(self.cfg.get("my_categories", []))
         self.cloud = CloudAI()
         if self.cfg.get("cloud_enabled") and self.cfg.get("describer") != "cloud":
-            self.cfg["describer"] = "cloud"  # корисник што веќе го користеше Claude
+            self.cfg["describer"] = "cloud"  # a user who already used Claude
             self.cfg["cloud_enabled"] = True
         self.cloud.configure(self.cfg.get("describer") == "cloud", self.cfg.get("cloud_key"), self.cfg.get("cloud_model"))
         self.vlm = LocalVLM(DATA_DIR / "models")
         self.safe = SAFE
         if SAFE:
-            print("Безбеден режим: моделите не се вклучуваат.")
+            print("Safe mode: the models are not started.")
             self.cloud.configure(False, "", None)
         elif self.cfg.get("configured"):
             self.vlm.configure(self.cfg.get("describer") == "local")
@@ -1156,9 +1251,9 @@ class App:
         sig = self.labels_sig()
         old = str(self.cfg.get("labels_sig", ""))
         if old.split(":")[0] != self.ai.model_id:
-            self.lib.reset_ai()          # друг модел → нова анализа
+            self.lib.reset_ai()          # different model → new analysis
         elif old != sig:
-            self.need_reclassify = True   # нови категории/логика → само повторно оценување
+            self.need_reclassify = True   # new categories/logic → only re-scoring
         self.cfg["labels_sig"] = sig
         save_config(self.cfg)
         self.wake = threading.Event()
@@ -1167,11 +1262,11 @@ class App:
 
     def labels_sig(self):
         from ai import Z_MIN, BACKGROUND
-        key = json.dumps([[l[0] for l in LABELS], self.cfg.get("my_categories", []), Z_MIN, BACKGROUND], ensure_ascii=False)
+        key = json.dumps([[l[1] for l in LABELS], self.cfg.get("my_categories", []), Z_MIN, BACKGROUND], ensure_ascii=False)
         return f"{self.ai.model_id}:" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:10]
 
     def cloud_labels(self):
-        return [(mk, en) for mk, en, _, _ in LABELS if not mk.startswith("_")] + \
+        return [(en, en) for mk, en, _, _ in LABELS if not en.startswith("_")] + \
                [(c["name"], c.get("desc") or c["name"]) for c in self.cfg.get("my_categories", [])]
 
     def describer(self):
@@ -1217,7 +1312,7 @@ class App:
                 "version": VERSION, "windows": IS_WIN, "heif": HEIF, "ffmpeg": bool(FFMPEG), "autostart": self._autostart,
                 "log": str(LOG_PATH), "model": self.ai.model_id, "my_places": self.cfg.get("my_places", []),
                 "models_ready": {"ai": self.ai.downloaded(), "vlm": self.vlm.downloaded()},
-                "tag_lang": self.cfg.get("tag_lang", "mk"), "my_categories": self.cfg.get("my_categories", []),
+                "my_categories": self.cfg.get("my_categories", []),
                 "cloud_enabled": self.cfg.get("describer") == "cloud", "describer": self.cfg.get("describer", "off"), "cloud_model": self.cloud.model,
                 "cloud_key_hint": ("…" + self.cfg["cloud_key"][-4:]) if self.cfg.get("cloud_key") else "",
                 "cloud_running": self.cfg.get("cloud_running", True),
@@ -1243,8 +1338,6 @@ class App:
                 self.vlm.configure(self.cfg.get("describer") == "local")
         if "ai" in data:
             self.cfg["ai"] = bool(data["ai"])
-        if data.get("tag_lang") in ("mk", "en"):
-            self.cfg["tag_lang"] = data["tag_lang"]
         if data.get("describer") in ("off", "local", "cloud"):
             self.cfg["describer"] = data["describer"]
             self.cfg["cloud_enabled"] = data["describer"] == "cloud"
@@ -1266,7 +1359,7 @@ class App:
             if "cloud_running" in data:
                 self.cfg["cloud_running"] = bool(data["cloud_running"])
             if data.get("cloud_scope") == "new":
-                with self.lib.db_lock:  # постојните слики не се праќаат, само новите
+                with self.lib.db_lock:  # existing photos are not sent, only new ones
                     self.lib.db.execute("UPDATE photos SET cloud_done=3 WHERE cloud_done=0")
                     self.lib.db.commit()
             elif data.get("cloud_scope") == "all":
@@ -1289,7 +1382,7 @@ class App:
             mp = []
             for m in data["my_places"]:
                 try:
-                    mp.append({"name": str(m["name"]).strip()[:40] or "Место", "lat": float(m["lat"]), "lon": float(m["lon"]),
+                    mp.append({"name": str(m["name"]).strip()[:40] or "Place", "lat": float(m["lat"]), "lon": float(m["lon"]),
                                "radius": max(50, min(20000, int(m.get("radius", 300))))})
                 except (KeyError, TypeError, ValueError):
                     pass
@@ -1312,25 +1405,25 @@ class App:
                 if self.cfg.get("configured") and self.cfg.get("sources"):
                     self.lib.organize()
             except Exception as e:
-                print("Грешка при скенирање:", e)
+                print("Scan error:", e)
             self.wake.wait(max(10, int(self.cfg.get("watch_seconds", 30))))
             self.wake.clear()
 
     def ai_worker(self):
         if self.safe:
             return
-        while not self.cfg.get("configured"):  # ништо не се препознава пред да се заврши водичот
+        while not self.cfg.get("configured"):  # nothing is recognized before the welcome guide is finished
             time.sleep(2)
         if self.ai.state != "missing_deps":
             if self.ai.downloaded():
                 self.ai.load()
             elif self.cfg.get("ai_requested") and self.cfg.get("ai", True):
-                self.ai.download()  # продолжи симнување што беше прекинато
+                self.ai.download()  # resume an interrupted download
         if self.ai.state == "ready":
             try:
-                self.lib.learn_all()  # научените ознаки се пресметуваат и за слики додадени во меѓувреме
+                self.lib.learn_all()  # learned tags are also computed for photos added in the meantime
             except Exception as e:
-                print("Учење:", e)
+                print("Learning:", e)
         while True:
             try:
                 if self.need_reclassify and self.ai.state == "ready":
@@ -1340,13 +1433,13 @@ class App:
                     if self.lib.ai_step(self.ai):
                         continue
             except Exception as e:
-                print("Грешка при препознавање:", e)
+                print("Recognition error:", e)
                 time.sleep(5)
             time.sleep(2)
 
     def fix_group(self, old, new, desc, ids):
-        """Корисникот кажал што навистина се сликите: погрешната ознака се тргнува (и не се враќа),
-        новата се става, станува твоја категорија и се учи од примерите за да се средат и сличните слики."""
+        """The user said what the photos really are: the wrong tag is removed (and never comes back),
+        the new one is added, becomes your category and is learned from the examples so similar photos get fixed too."""
         lib = self.lib
         with lib.db_lock:
             for pid in ids:
@@ -1356,7 +1449,7 @@ class App:
                     lib.db.execute("INSERT OR REPLACE INTO tags VALUES(?,?,?,?)", (pid, new, 1.0, "user"))
                     lib.db.execute("DELETE FROM hidden_tags WHERE photo_id=? AND tag=?", (pid, new))
             lib.db.commit()
-        if new and new not in MK2EN and new not in [c["name"] for c in self.cfg.get("my_categories", [])]:
+        if new and new not in BUILTIN and new not in [c["name"] for c in self.cfg.get("my_categories", [])]:
             self.cfg.setdefault("my_categories", []).append({"name": new, "desc": desc or new})
             self.ai.set_custom(self.cfg["my_categories"])
             self.cfg["labels_sig"] = self.labels_sig()
@@ -1369,7 +1462,7 @@ class App:
                 if self.ai.state == "ready":
                     lib.reclassify(self.ai)
             except Exception as e:
-                print("Поправка на група:", e)
+                print("Group fix:", e)
         threading.Thread(target=later, daemon=True).start()
         lib.bump()
         return len(ids)
@@ -1490,17 +1583,17 @@ def make_handler(app: App):
                 if not q or app.ai.state != "ready":
                     self.send_json({"ready": app.ai.state == "ready", "results": []})
                 else:
-                    self.send_json({"ready": True, "results": lib.semantic_search(app.ai.query_vector(q))})
+                    self.send_json({"ready": True, "results": lib.semantic_search(app.ai.query_vector(q), min_sim=app.ai.min_sim)})
             elif path == "/api/geocode":
                 try:
                     self.send_json(geocode((q.get("q") or [""])[0]))
                 except Exception as e:
                     print("Geocode:", e)
-                    self.send_json({"error": "Пребарувањето адреса не успеа"}, 502)
+                    self.send_json({"error": "Address search failed"}, 502)
             elif path.startswith("/api/history/"):
                 pid = path.rsplit("/", 1)[1]
                 h = lib.history(int(pid)) if pid.isdigit() else None
-                self.send_json(h or {"error": "нема"}, 200 if h else 404)
+                self.send_json(h or {"error": "none"}, 200 if h else 404)
             elif path.startswith("/api/similar/"):
                 pid = path.rsplit("/", 1)[1]
                 self.send_json(lib.similar(int(pid)) if pid.isdigit() else [])
@@ -1563,7 +1656,7 @@ def make_handler(app: App):
                     self.send_json(app.config_view())
                 elif path == "/api/pick-folder":
                     try:
-                        self.send_json({"path": pick_folder_dialog(data.get("title", "Избери папка"))})
+                        self.send_json({"path": pick_folder_dialog(data.get("title", "Choose a folder"))})
                     except Exception as e:
                         self.send_json({"error": str(e)})
                 elif parts[:2] == ["api", "photo"] and len(parts) == 3 and parts[2].isdigit():
@@ -1579,7 +1672,7 @@ def make_handler(app: App):
                 elif path == "/api/albums":
                     name = str(data.get("name", "")).strip()[:80]
                     if not name:
-                        self.send_json({"error": "Внеси име"}, 400)
+                        self.send_json({"error": "Enter a name"}, 400)
                         return
                     self.send_json({"id": lib.create_album(name, str(data.get("color", "#2B5FD9"))[:9])})
                 elif parts[:2] == ["api", "albums"] and len(parts) == 4 and parts[2].isdigit():
@@ -1587,19 +1680,19 @@ def make_handler(app: App):
                     self.send_json({"ok": True})
                 elif path == "/api/open-path":
                     target = Path(str(data.get("path", "")))
-                    # дозволени се само патеки што ги знае базата (оригинали и копии), не произволни
+                    # only paths the database knows (originals and copies) are allowed, not arbitrary ones
                     with lib.db_lock:
                         known = lib.db.execute("SELECT 1 FROM photos WHERE orig=? UNION SELECT 1 FROM seen WHERE path=?",
                                                (str(target), str(target))).fetchone()
                     if not known:
-                        self.send_json({"error": "непозната патека"}, 400)
+                        self.send_json({"error": "unknown path"}, 400)
                         return
                     if target.exists():
                         open_path(target, select=True)
                     elif target.parent.exists():
                         open_path(target.parent)
                     else:
-                        self.send_json({"error": "Оригиналната папка повеќе не постои"}, 404)
+                        self.send_json({"error": "The original folder no longer exists"}, 404)
                         return
                     self.send_json({"ok": True})
                 elif parts[:2] == ["api", "reveal"] and len(parts) == 3 and parts[2].isdigit():
@@ -1622,7 +1715,7 @@ def make_handler(app: App):
                     old = str(data.get("tag", "")).strip()
                     new = str(data.get("name", "")).strip()[:40]
                     if not old:
-                        self.send_json({"error": "нема група"}, 400)
+                        self.send_json({"error": "no group"}, 400)
                         return
                     n = app.fix_group(old, new, str(data.get("desc", "")).strip()[:200], ids)
                     self.send_json({"ok": True, "fixed": n})
@@ -1641,7 +1734,7 @@ def make_handler(app: App):
                 elif path == "/api/system/uninstall":
                     u = uninstaller()
                     if not u:
-                        self.send_json({"error": "Деинсталацијата е достапна само за инсталираната верзија"}, 400)
+                        self.send_json({"error": "Uninstall is only available for the installed version"}, 400)
                         return
                     subprocess.Popen([str(u)])
                     self.send_json({"ok": True})
@@ -1652,7 +1745,7 @@ def make_handler(app: App):
                 else:
                     self.send_error(404)
             except Exception as e:
-                print("Грешка:", e)
+                print("Error:", e)
                 self.send_json({"error": str(e)}, 500)
     return H
 
@@ -1679,8 +1772,8 @@ def open_in_chrome(url):
 
 
 def install_models():
-    """Го повикува инсталерот: ги симнува моделите веднаш, за апликацијата да е комплетна.
-    Пишува латиница, бидејќи прозорецот на инсталерот не прикажува кирилица од конзола."""
+    """Called by the installer: downloads the models right away so the app is complete.
+    Prints plain ASCII text for the installer window."""
     cfg = load_config()
     a = AI(DATA_DIR / "models", cfg.get("model", DEFAULT_MODEL))
     v = LocalVLM(DATA_DIR / "models")
@@ -1727,23 +1820,23 @@ def main():
     url = f"http://127.0.0.1:{port}"
     if cmd == "organize":
         lib = Library(cfg, Places())
-        print("Скенирам…")
+        print("Scanning…")
         lib.organize()
         s = lib.status
-        print(f"Готово: додадени {s['added']}, дупликати {s['duplicates']}, грешки {s['errors']}.")
+        print(f"Done: added {s['added']}, duplicates {s['duplicates']}, errors {s['errors']}.")
         return
     app = App()
     try:
         app.httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
     except OSError:
-        print(f"Фотоархива веќе работи. Го отворам прозорецот: {url}")
+        print(f"Fotoarhiva is already running. Opening the window: {url}")
         if not no_browser:
             open_in_chrome(url)
         return
     app.httpd.daemon_threads = True
-    print(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} · Фотоархива {VERSION} работи на {url}{' (безбеден режим)' if SAFE else ''}")
-    print(f"Библиотека: {app.lib.root}")
-    print("Овој прозорец може да остане минимизиран. Затвори го за да ја исклучиш апликацијата.")
+    print(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} · Fotoarhiva {VERSION} running at {url}{' (safe mode)' if SAFE else ''}")
+    print(f"Library: {app.lib.root}")
+    print("This window can stay minimized. Close it to quit the app.")
     threading.Thread(target=app.watcher, daemon=True).start()
     threading.Thread(target=app.ai_worker, daemon=True).start()
     threading.Thread(target=app.cloud_worker, daemon=True).start()
@@ -1752,7 +1845,7 @@ def main():
     try:
         app.httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nДовидување.")
+        print("\nGoodbye.")
 
 
 if __name__ == "__main__":

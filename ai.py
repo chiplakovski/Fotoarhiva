@@ -1,10 +1,10 @@
-"""Паметно препознавање на содржината на сликите. Работи локално, сликите не се праќаат никаде.
+"""Smart recognition of photo content. Runs locally, photos are never sent anywhere.
 
-Модели (се симнуваат еднаш од HuggingFace):
-  * siglip2 – Google SigLIP 2: прецизен и повеќејазичен (разбира македонски и англиски). Препорачан.
-  * clip    – OpenAI CLIP ViT-B/32: помал и побрз, само англиски.
+Models (downloaded once from HuggingFace):
+  * siglip2 – Google SigLIP 2: accurate and multilingual. Recommended.
+  * clip    – OpenAI CLIP ViT-B/32: smaller and faster, English only.
 
-Потребни пакети: onnxruntime, numpy, tokenizers (вклучени во инсталерот).
+Needs: onnxruntime, numpy, tokenizers (included in the installer).
 """
 import hashlib, json, os, threading, urllib.request
 from pathlib import Path
@@ -14,29 +14,29 @@ UA = {"User-Agent": "Fotoarhiva/2.1"}
 
 MODELS = {
     "siglip2": {
-        "name": "Напреден (Google SigLIP 2)", "name_en": "Advanced (Google SigLIP 2)",
-        "about": "Најдобро препознавање. Разбира македонски и англиски. Околу 400 MB.",
+        "name": "Advanced (Google SigLIP 2)", "name_en": "Advanced (Google SigLIP 2)",
+        "about": "Good recognition, understands many languages. About 400 MB.",
         "repos": ["onnx-community/siglip2-base-patch16-224-ONNX", "onnx-community/siglip2-base-patch16-256-ONNX",
                   "onnx-community/siglip2-base-patch16-384-ONNX"],
         "kind": "siglip", "ctx": 64, "multilingual": True, "approx_mb": 400,
     },
     "siglip2-large": {
-        "name": "Голем (SigLIP 2 Large)", "name_en": "Large (SigLIP 2 Large)",
-        "about": "Попрецизен од Напредниот, македонски и англиски. Околу 900 MB, побавен.",
+        "name": "Large (SigLIP 2 Large)", "name_en": "Large (SigLIP 2 Large)",
+        "about": "More accurate than Advanced. About 900 MB, slower.",
         "repos": ["onnx-community/siglip2-large-patch16-256-ONNX", "onnx-community/siglip2-large-patch16-384-ONNX",
                   "onnx-community/siglip2-large-patch16-512-ONNX"],
         "kind": "siglip", "ctx": 64, "multilingual": True, "approx_mb": 900,
     },
     "siglip2-so400m": {
-        "name": "Максимален (SigLIP 2 So400m)", "name_en": "Maximum (SigLIP 2 So400m)",
-        "about": "Најпрецизен локален модел. Околу 1,5 GB, бавен на постари компјутери.",
+        "name": "Maximum (SigLIP 2 So400m)", "name_en": "Maximum (SigLIP 2 So400m)",
+        "about": "The most accurate local model. About 1.5 GB, slow on older computers.",
         "repos": ["onnx-community/siglip2-so400m-patch14-384-ONNX", "onnx-community/siglip2-so400m-patch16-384-ONNX",
                   "onnx-community/siglip2-so400m-patch14-224-ONNX", "onnx-community/siglip2-so400m-patch16-256-ONNX"],
         "kind": "siglip", "ctx": 64, "multilingual": True, "approx_mb": 1500,
     },
     "clip": {
-        "name": "Стандарден (OpenAI CLIP)", "name_en": "Standard (OpenAI CLIP)",
-        "about": "Помал и побрз, послабо препознавање, само англиски. Околу 155 MB.",
+        "name": "Standard (OpenAI CLIP)", "name_en": "Standard (OpenAI CLIP)",
+        "about": "Smaller and faster, weaker recognition. About 155 MB.",
         "repos": ["Xenova/clip-vit-base-patch32"],
         "kind": "clip", "ctx": 77, "multilingual": False, "approx_mb": 155,
     },
@@ -49,7 +49,8 @@ PREFER = {
              "onnx/text_model_q8.onnx", "onnx/text_model_fp16.onnx", "onnx/text_model.onnx"],
 }
 
-# (македонски, англиски, група, англиски описи за моделот). Ознаките што почнуваат со "_" служат само за споредба.
+# (old Macedonian name — used only to migrate older libraries, English tag name, group, English prompts for the model).
+# Tags starting with "_" are only used for comparison and are never shown.
 LABELS = [
     ("Природа", "Nature", "Природа", ["a photo of nature", "a landscape with trees and fields"]),
     ("Планини", "Mountains", "Природа", ["a photo of mountains", "a mountain peak", "a mountain landscape"]),
@@ -177,11 +178,15 @@ LABELS = [
     ("Стара фотографија", "Old photo", "Вид", ["an old vintage photograph", "a scanned old family photo"]),
     ("_мутна", "_blurry", "", ["a blurry photo", "a dark underexposed photo"]),
 ]
-MK2EN = {mk: en for mk, en, _, _ in LABELS}
+MK2EN = {mk: en for mk, en, _, _ in LABELS}          # only for migrating older libraries
+BUILTIN = {en for _, en, _, _ in LABELS}
+GROUP_EN = {"Природа": "Nature", "Места": "Places", "Дом": "Home", "Работа": "Work", "Луѓе": "People",
+            "Настани": "Events", "Спорт": "Sport", "Храна": "Food", "Животни": "Animals", "Предмети": "Things",
+            "Документи": "Documents", "Вид": "Photo type", "": ""}
 MAX_TAGS = 4
-# Општи описи: ознаката се дава само ако е посилна од „слика од нешто“ (иначе нема ознака, наместо погрешна).
+# Generic prompts: a tag is given only if it beats "a photo of something" (otherwise no tag rather than a wrong one).
 BACKGROUND = ["a photo", "a picture", "an image", "a photo of something", "a photo of an object", "a snapshot"]
-Z_MIN = 3.0          # колку ознаката мора да се издвојува од останатите (во стандардни девијации)
+Z_MIN = 3.0          # how far a tag must stand out from the rest (in standard deviations)
 
 
 def deps_ok():
@@ -191,7 +196,7 @@ def deps_ok():
 
 
 def labels_public():
-    return [{"mk": mk, "en": en, "group": g} for mk, en, g, _ in LABELS if not mk.startswith("_")]
+    return [{"name": en, "group": GROUP_EN.get(g, g)} for mk, en, g, _ in LABELS if not en.startswith("_")]
 
 
 class AI:
@@ -204,9 +209,11 @@ class AI:
         self.lock = threading.Lock()
         self.vis = self.txt = self.tok = self.L = None
         self.names, self.pre, self.custom, self.B = [], {}, [], None
+        # below this text-photo similarity a search hit is not trusted (used for small libraries)
+        self.min_sim = 0.075 if self.cfg["kind"] == "siglip" else 0.24
         ok, err = deps_ok()
         if not ok:
-            self.state, self.message = "missing_deps", f"Делот за препознавање не можеше да се вчита ({err[:160]}). Инсталирај ја Фотоархива повторно."
+            self.state, self.message = "missing_deps", f"The recognition part could not be loaded ({err[:160]}). Please reinstall Fotoarhiva."
         elif not self.downloaded():
             self.state = "not_downloaded"
 
@@ -224,7 +231,7 @@ class AI:
             return json.loads(r.read().decode("utf-8"))
 
     def _plan(self):
-        """Ги наоѓа точните датотеки на моделот преку HuggingFace API (имињата се разликуваат меѓу верзии)."""
+        """Finds the exact model files through the HuggingFace API (file names differ between versions)."""
         last = None
         for repo in self.cfg["repos"]:
             try:
@@ -240,8 +247,8 @@ class AI:
                 if "preprocessor_config.json" in files:
                     plan["preprocessor_config.json"] = "preprocessor_config.json"
                 return repo, plan
-            last = RuntimeError(f"{repo}: нема потребни ONNX датотеки")
-        raise RuntimeError(f"моделот не е најден ({last})")
+            last = RuntimeError(f"{repo}: required ONNX files missing")
+        raise RuntimeError(f"model not found ({last})")
 
     def download(self, then_load=True):
         with self.lock:
@@ -273,7 +280,7 @@ class AI:
             else:
                 self.state = "downloaded"
         except Exception as e:
-            self.state, self.message = "error", f"Симнувањето не успеа: {e}. Провери интернет и пробај повторно."
+            self.state, self.message = "error", f"Download failed: {e}. Check the internet connection and try again."
 
     # ---------- load
     def load(self):
@@ -309,12 +316,12 @@ class AI:
             self.build_labels()
             self.state, self.message = "ready", ""
         except Exception as e:
-            self.state, self.message = "error", f"Моделот не можеше да се вчита: {e}"
+            self.state, self.message = "error", f"The model could not be loaded: {e}"
 
     def build_labels(self):
-        """Векторите за сите категории: вградените + твоите („Мои категории“). Се кешираат на диск."""
+        """Vectors for all categories: built-in + yours ("My categories"). Cached on disk."""
         import numpy as np
-        allx = [(l[0], l[3]) for l in LABELS] + [(n, p) for n, p in self.custom]
+        allx = [(l[1], l[3]) for l in LABELS] + [(n, p) for n, p in self.custom]
         sig = hashlib.sha1(json.dumps([self.model_id, allx, BACKGROUND], ensure_ascii=False).encode()).hexdigest()[:12]
         cache = self.dir / f"labels-{sig}.npz"
         if cache.exists():
@@ -338,7 +345,7 @@ class AI:
         self.names = [a[0] for a in allx]
 
     def set_custom(self, cats):
-        """cats: [{"name":..., "desc":...}] → и македонски и англиски описи работат со SigLIP 2."""
+        """cats: [{"name":..., "desc":...}] — descriptions in any language work with SigLIP 2."""
         out = []
         for c in cats or []:
             name = str(c.get("name", "")).strip()
@@ -361,7 +368,7 @@ class AI:
         for o in outs:
             if getattr(o, "ndim", 0) == 2:
                 return o
-        raise RuntimeError(f"неочекуван {kind} модел: излези {names}")
+        raise RuntimeError(f"unexpected {kind} model: outputs {names}")
 
     # ---------- inference
     def encode_text(self, texts):
@@ -408,12 +415,12 @@ class AI:
         return e / np.linalg.norm(e, axis=1, keepdims=True)
 
     def classify(self, E):
-        """За секоја слика [(ознака, z-оценка)].
-        Ознака се дава само ако (1) јасно се издвојува од сите други категории (z ≥ Z_MIN)
-        и (2) е посилна од општиот опис „слика од нешто“. Ако ништо не одговара, сликата нема ознака."""
+        """For each photo [(tag, z-score)].
+        A tag is given only if (1) it clearly stands out from all other categories (z >= Z_MIN)
+        and (2) it beats the generic "a photo of something". If nothing fits, the photo gets no tag."""
         import numpy as np
-        S = E @ self.L.T                         # сличност со секоја категорија
-        bg = (E @ self.B.T).max(1)               # сличност со општо „слика“
+        S = E @ self.L.T                         # similarity to each category
+        bg = (E @ self.B.T).max(1)               # similarity to a generic "photo"
         mu = S.mean(1, keepdims=True)
         sd = S.std(1, keepdims=True) + 1e-6
         Z = (S - mu) / sd
@@ -426,13 +433,6 @@ class AI:
         return out
 
     def query_vector(self, q):
-        """Вектор за слободно пребарување. SigLIP 2 ги разбира и македонски и англиски.
-        CLIP разбира само англиски, па македонските зборови се преведуваат преку ознаките."""
+        """Vector for free-text search."""
         q = q.strip()
-        if not self.cfg["multilingual"] and any(ord(c) > 127 for c in q):
-            low = q.lower()
-            words = [en for mk, en, _, _ in LABELS if not mk.startswith("_") and mk.lower() in low]
-            words += [en for mk, en, _, _ in LABELS if not mk.startswith("_") and any(w and w in low for w in mk.lower().split(" и ") if len(w) > 3)]
-            if words:
-                q = "a photo of " + " and ".join(dict.fromkeys(words))
         return self.encode_text([q if len(q.split()) > 1 else "a photo of " + q])[0]

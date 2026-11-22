@@ -1,13 +1,14 @@
-; Фотоархива — Windows инсталер
+; Fotoarhiva — Windows installer
 Unicode true
 SetCompressor /SOLID lzma
 SetCompressorDictSize 64
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 
-!define APPNAME "Фотоархива"
+!define APPNAME "Fotoarhiva"
+!define OLDNAME "Фотоархива"  ; shortcut name used by versions up to 2.4
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.4.0"
+!define VERSION "2.5.0"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -16,7 +17,7 @@ InstallDir "$LOCALAPPDATA\Programs\Fotoarhiva"
 InstallDirRegKey HKCU "Software\${APPKEY}" "InstallDir"
 RequestExecutionLevel user
 BrandingText "${APPNAME} ${VERSION}"
-VIProductVersion "2.4.0.0"
+VIProductVersion "2.5.0.0"
 VIAddVersionKey /LANG=0 "ProductName" "Fotoarhiva"
 VIAddVersionKey /LANG=0 "FileDescription" "Fotoarhiva Setup"
 VIAddVersionKey /LANG=0 "FileVersion" "${VERSION}"
@@ -26,12 +27,12 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
 !define MUI_ICON "stage\fotoarhiva.ico"
 !define MUI_UNICON "stage\fotoarhiva.ico"
 !define MUI_ABORTWARNING
-!define MUI_WELCOMEPAGE_TITLE "Добредојде во инсталацијата на Фотоархива"
-!define MUI_WELCOMEPAGE_TEXT "Фотоархива ги собира сите слики од компјутерот на едно место, ги средува по година и месец и препознава што има на нив.$\r$\n$\r$\nСè што е потребно е вклучено во инсталацијата. Не е потребна администраторска дозвола.$\r$\n$\r$\nСликите никогаш не се праќаат на интернет.$\r$\n$\r$\nКликни Напред за да продолжиш."
-!define MUI_FINISHPAGE_TITLE "Фотоархива е инсталирана"
-!define MUI_FINISHPAGE_TEXT "Фотоархива е инсталирана, заедно со моделите за препознавање.$\r$\n$\r$\nПри отворањето ќе избереш од кои папки да се внесат сликите. Препознавањето почнува дури потоа."
+!define MUI_WELCOMEPAGE_TITLE "Welcome to the Fotoarhiva setup"
+!define MUI_WELCOMEPAGE_TEXT "Fotoarhiva gathers all the photos on your computer in one place, organizes them by year and month and recognizes what is in them.$\r$\n$\r$\nEverything it needs is included. No administrator rights are needed.$\r$\n$\r$\nYour photos are never sent to the internet.$\r$\n$\r$\nClick Next to continue."
+!define MUI_FINISHPAGE_TITLE "Fotoarhiva is installed"
+!define MUI_FINISHPAGE_TEXT "Fotoarhiva is installed, together with the recognition models.$\r$\n$\r$\nWhen it opens, you choose which folders to import photos from. Recognition starts only after that."
 !define MUI_FINISHPAGE_RUN
-!define MUI_FINISHPAGE_RUN_TEXT "Отвори ја Фотоархива сега"
+!define MUI_FINISHPAGE_RUN_TEXT "Open Fotoarhiva now"
 !define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
 
 !insertmacro MUI_PAGE_WELCOME
@@ -41,12 +42,12 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_LANGUAGE "Macedonian"
+!insertmacro MUI_LANGUAGE "English"
 
 !macro StopApp
-  ; Ја исклучува Фотоархива (сите верзии) пред да се менуваат датотеките.
-  ; Скриптата се пишува во датотека за да нема проблеми со наводници.
-  DetailPrint "Ја исклучувам Фотоархива ако работи..."
+  ; Stops Fotoarhiva (any version) before the files are replaced.
+  ; The script is written to a file to avoid quoting problems.
+  DetailPrint "Closing Fotoarhiva if it is running..."
   FileOpen $9 "$TEMP\fotoarhiva-stop.ps1" w
   FileWriteWord $9 0xFEFF
   FileWriteUTF16LE $9 "$$d = '$INSTDIR'$\r$\n"
@@ -66,7 +67,7 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
 !macroend
 
 !macro ClearDir DIR LBL
-  ; Ја брише папката. Ако нешто сè уште е заклучено, ја преместува настрана (се брише следниот пат).
+  ; Deletes the folder. If something is still locked, moves it aside (deleted next time).
   RMDir /r "${DIR}"
   IfFileExists "${DIR}\*.*" 0 ${LBL}
     System::Call 'kernel32::GetTickCount()i.r8'
@@ -79,12 +80,12 @@ Function LaunchApp
   Exec '"$INSTDIR\runtime\pythonw.exe" "$INSTDIR\app\fotoarhiva.py" run'
 FunctionEnd
 
-Section "Фотоархива" SecMain
+Section "Fotoarhiva" SecMain
   SectionIn RO
   !insertmacro StopApp
 
-  ; чиста надградба: стариот програмски дел се заменува, поставките и сликите остануваат
-  ; избриши останати стари папки од претходни надградби
+  ; clean upgrade: the program is replaced, settings and photos stay
+  ; remove leftover folders from earlier upgrades
   FindFirst $1 $2 "$INSTDIR\*.old*"
   loop_old:
     StrCmp $2 "" done_old
@@ -96,10 +97,10 @@ Section "Фотоархива" SecMain
   !insertmacro ClearDir "$INSTDIR\runtime" cleared_runtime
   !insertmacro ClearDir "$INSTDIR\app" cleared_app
   IfFileExists "$INSTDIR\runtime\*.*" 0 +3
-    MessageBox MB_OK|MB_ICONEXCLAMATION "Фотоархива сè уште работи и не може да се замени.$\r$\nРестартирај го компјутерот и стартувај ја инсталацијата повторно."
+    MessageBox MB_OK|MB_ICONEXCLAMATION "Fotoarhiva is still running and cannot be replaced.$\r$\nRestart the computer and run the setup again."
     Abort
 
-  ; остатоци од претходните верзии со start.bat
+  ; leftovers from the old start.bat versions
   RMDir /r "$LOCALAPPDATA\Fotoarhiva\.venv"
   Delete "$LOCALAPPDATA\Fotoarhiva\fotoarhiva.py"
   Delete "$LOCALAPPDATA\Fotoarhiva\ai.py"
@@ -111,7 +112,7 @@ Section "Фотоархива" SecMain
   Delete "$LOCALAPPDATA\Fotoarhiva\Fotoarhiva.vbs"
   Delete "$LOCALAPPDATA\Fotoarhiva\.shortcut-done"
 
-  DetailPrint "Ги копирам датотеките..."
+  DetailPrint "Copying files..."
   SetOutPath "$INSTDIR\runtime"
   File /r "stage\runtime\*.*"
   SetOutPath "$INSTDIR\app"
@@ -120,23 +121,34 @@ Section "Фотоархива" SecMain
   File "stage\fotoarhiva.ico"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
-  ; кратенки (работната папка е app)
+  ; old Macedonian-named shortcuts from versions up to 2.4
+  Delete "$DESKTOP\${OLDNAME}.lnk"
+  Delete "$SMPROGRAMS\${OLDNAME}.lnk"
+  Delete "$SMPROGRAMS\${OLDNAME}\${OLDNAME}.lnk"
+  Delete "$SMPROGRAMS\${OLDNAME}\${OLDNAME} (безбеден режим).lnk"
+  Delete "$SMPROGRAMS\${OLDNAME}\Деинсталирај ${OLDNAME}.lnk"
+  RMDir "$SMPROGRAMS\${OLDNAME}"
+  IfFileExists "$SMSTARTUP\${OLDNAME}.lnk" 0 +3
+    Delete "$SMSTARTUP\${OLDNAME}.lnk"
+    CreateShortcut "$SMSTARTUP\${APPNAME}.lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run --no-browser' "$INSTDIR\fotoarhiva.ico"
+
+  ; shortcuts (working folder is app)
   SetOutPath "$INSTDIR\app"
   CreateShortcut "$DESKTOP\${APPNAME}.lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run' "$INSTDIR\fotoarhiva.ico" 0 SW_SHOWNORMAL "" "${APPNAME}"
   Delete "$SMPROGRAMS\${APPNAME}.lnk"
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
   CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run' "$INSTDIR\fotoarhiva.ico" 0 SW_SHOWNORMAL "" "${APPNAME}"
-  CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME} (безбеден режим).lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run --safe' "$INSTDIR\fotoarhiva.ico" 0 SW_SHOWNORMAL "" "${APPNAME} без препознавање"
-  CreateShortcut "$SMPROGRAMS\${APPNAME}\Деинсталирај ${APPNAME}.lnk" "$INSTDIR\Uninstall.exe" "" "$INSTDIR\Uninstall.exe" 0
-  ; ако беше вклучено „стартувај со Windows“, кратенката се обновува кон новата локација
+  CreateShortcut "$SMPROGRAMS\${APPNAME}\${APPNAME} (safe mode).lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run --safe' "$INSTDIR\fotoarhiva.ico" 0 SW_SHOWNORMAL "" "${APPNAME} without recognition"
+  CreateShortcut "$SMPROGRAMS\${APPNAME}\Uninstall ${APPNAME}.lnk" "$INSTDIR\Uninstall.exe" "" "$INSTDIR\Uninstall.exe" 0
+  ; if "start with Windows" was on, the shortcut is pointed at the new location
   IfFileExists "$SMSTARTUP\${APPNAME}.lnk" 0 +2
     CreateShortcut "$SMSTARTUP\${APPNAME}.lnk" "$INSTDIR\runtime\pythonw.exe" '"$INSTDIR\app\fotoarhiva.py" run --no-browser' "$INSTDIR\fotoarhiva.ico"
 
-  ; „Apps & features“
+  ; "Apps & features"
   WriteRegStr HKCU "Software\${APPKEY}" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayName" "${APPNAME}"
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKCU "${UNINSTKEY}" "Publisher" "Фотоархива"
+  WriteRegStr HKCU "${UNINSTKEY}" "Publisher" "Fotoarhiva"
   WriteRegStr HKCU "${UNINSTKEY}" "DisplayIcon" "$INSTDIR\fotoarhiva.ico"
   WriteRegStr HKCU "${UNINSTKEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTKEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'
@@ -148,20 +160,20 @@ Section "Фотоархива" SecMain
   WriteRegDWORD HKCU "${UNINSTKEY}" "EstimatedSize" "$0"
 SectionEnd
 
-Section "Модели за препознавање (~3,5 GB од интернет)" SecModels
-  DetailPrint "Ги симнувам моделите за препознавање. Ова трае неколку минути, зависно од интернетот..."
+Section "Recognition models (~3.5 GB download)" SecModels
+  DetailPrint "Downloading the recognition models. This takes a few minutes, depending on the internet connection..."
   SetDetailsView show
   SetOutPath "$INSTDIR\app"
   nsExec::ExecToLog '"$INSTDIR\runtime\python.exe" "$INSTDIR\app\fotoarhiva.py" install-models'
   Pop $0
   StrCmp $0 "0" models_ok
-    MessageBox MB_OK|MB_ICONINFORMATION "Моделите не се симнаа целосно (проверете ја интернет врската).$\r$\nФотоархива ќе ги досимне сама кога ќе ја вклучите."
+    MessageBox MB_OK|MB_ICONINFORMATION "The models were not fully downloaded (check the internet connection).$\r$\nFotoarhiva will finish downloading them when you start it."
   models_ok:
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "Програмата Фотоархива."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecModels} "Брзо препознавање (SigLIP 2) и опишувач на слики (Qwen3-VL 4B). Се симнуваат сега, за апликацијата да биде комплетна. Ако се исклучи, ќе се симнат подоцна."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "The Fotoarhiva program."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecModels} "Quick recognition (SigLIP 2) and the photo describer (Qwen3-VL 4B). Downloaded now so the app is complete. If unchecked, they are downloaded later."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"
@@ -169,8 +181,8 @@ Section "Uninstall"
   Delete "$DESKTOP\${APPNAME}.lnk"
   Delete "$SMPROGRAMS\${APPNAME}.lnk"
   Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"
-  Delete "$SMPROGRAMS\${APPNAME}\${APPNAME} (безбеден режим).lnk"
-  Delete "$SMPROGRAMS\${APPNAME}\Деинсталирај ${APPNAME}.lnk"
+  Delete "$SMPROGRAMS\${APPNAME}\${APPNAME} (safe mode).lnk"
+  Delete "$SMPROGRAMS\${APPNAME}\Uninstall ${APPNAME}.lnk"
   RMDir "$SMPROGRAMS\${APPNAME}"
   Delete "$SMSTARTUP\${APPNAME}.lnk"
   RMDir /r "$INSTDIR\runtime"
@@ -188,6 +200,6 @@ Section "Uninstall"
   RMDir "$INSTDIR"
   DeleteRegKey HKCU "${UNINSTKEY}"
   DeleteRegKey HKCU "Software\${APPKEY}"
-  MessageBox MB_YESNO|MB_ICONQUESTION "Да се избришат и поставките и моделот за препознавање?$\r$\n$\r$\nТвоите слики и средената библиотека НЕ се бришат." /SD IDNO IDNO +2
+  MessageBox MB_YESNO|MB_ICONQUESTION "Also delete the settings and the recognition models?$\r$\n$\r$\nYour photos and the organized library are NOT deleted." /SD IDNO IDNO +2
     RMDir /r "$LOCALAPPDATA\Fotoarhiva"
 SectionEnd
