@@ -8,7 +8,7 @@ SetCompressorDictSize 64
 !define APPNAME "Fotoarhiva"
 !define OLDNAME "Фотоархива"  ; shortcut name used by versions up to 2.4
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.5.0"
+!define VERSION "2.6.0"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -51,7 +51,8 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
   FileOpen $9 "$TEMP\fotoarhiva-stop.ps1" w
   FileWriteWord $9 0xFEFF
   FileWriteUTF16LE $9 "$$d = '$INSTDIR'$\r$\n"
-  FileWriteUTF16LE $9 "try { Invoke-WebRequest -UseBasicParsing -Method Post -Body '{}' -ContentType 'application/json' -Uri 'http://127.0.0.1:8765/api/quit' -TimeoutSec 2 | Out-Null } catch {}$\r$\n"
+  FileWriteUTF16LE $9 "$$t = Get-Content -Raw (Join-Path $$env:LOCALAPPDATA 'Fotoarhiva\quit.token') -ErrorAction SilentlyContinue$\r$\n"
+  FileWriteUTF16LE $9 "try { Invoke-WebRequest -UseBasicParsing -Method Post -Body '{}' -ContentType 'application/json' -Headers @{'X-Quit-Token'=([string]$$t).Trim()} -Uri 'http://127.0.0.1:8765/api/quit' -TimeoutSec 2 | Out-Null } catch {}$\r$\n"
   FileWriteUTF16LE $9 "Start-Sleep -Milliseconds 1000$\r$\n"
   FileWriteUTF16LE $9 "for ($$i = 0; $$i -lt 3; $$i++) {$\r$\n"
   FileWriteUTF16LE $9 "  $$p = Get-CimInstance Win32_Process | Where-Object { ($$_.ExecutablePath -and $$_.ExecutablePath.StartsWith($$d, [StringComparison]::OrdinalIgnoreCase)) -or ($$_.CommandLine -like '*fotoarhiva.py*') }$\r$\n"

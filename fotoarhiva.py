@@ -7,7 +7,7 @@ Commands for advanced users:
   python fotoarhiva.py organize             # a single scan, no interface
   python fotoarhiva.py shortcut             # create a Desktop shortcut (Windows)
 """
-import hashlib, json, math, os, re, shutil, sqlite3, struct, sys, threading, time, uuid, webbrowser, mimetypes, subprocess, platform
+import hashlib, hmac, json, secrets, math, os, re, shutil, sqlite3, struct, sys, threading, time, uuid, webbrowser, mimetypes, subprocess, platform
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -57,7 +57,7 @@ from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.5"
+VERSION = "2.6"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -1222,6 +1222,7 @@ class App:
         self.cfg = load_config()
         rename_old_library(self.cfg)
         self.cfg.pop("tag_lang", None)
+        self.auth = Auth(self.cfg)
         for m in self.cfg.get("my_places", []):  # the old default names of my places
             m["name"] = OLD_PLACES.get(m.get("name"), m.get("name"))
         self.places = Places()
@@ -1315,7 +1316,7 @@ class App:
                 "my_categories": self.cfg.get("my_categories", []),
                 "cloud_enabled": self.cfg.get("describer") == "cloud", "describer": self.cfg.get("describer", "off"), "cloud_model": self.cloud.model,
                 "cloud_key_hint": ("…" + self.cfg["cloud_key"][-4:]) if self.cfg.get("cloud_key") else "",
-                "cloud_running": self.cfg.get("cloud_running", True),
+                "cloud_running": self.cfg.get("cloud_running", True), "login": self.auth.view(),
                 "cloud_models": [{"id": k, "name": v["name"], "usd_per_1000": v["usd_per_1000"]} for k, v in CLOUD_MODELS.items()], "can_uninstall": uninstaller() is not None,
                 "models": [{"id": k, "name": v["name"], "name_en": v["name_en"], "about": v["about"], "multilingual": v["multilingual"]} for k, v in MODELS.items()]}
 
@@ -1490,6 +1491,111 @@ class App:
 
 
 # ----------------------------------------------------------------- http
+# ----------------------------------------------------------------- login
+DEFAULT_USER, DEFAULT_PASSWORD = "admin", "0409979"
+SESSION_DAYS = 30
+
+
+def pw_hash(password, salt):
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), 200_000).hex()
+
+
+class Auth:
+    """Username and password for opening Fotoarhiva. The default login is admin / 0409979; change it in Settings."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.lock = threading.Lock()
+        a = cfg.get("auth")
+        if not isinstance(a, dict) or not a.get("hash"):
+            self._set(DEFAULT_USER, DEFAULT_PASSWORD, default=True)
+        self.path = DATA_DIR / "sessions.json"
+        # lets the installer close a running app without signing in (the file is readable only on this computer)
+        self.quit_token = secrets.token_urlsafe(24)
+        try:
+            (DATA_DIR / "quit.token").write_text(self.quit_token, "utf-8")
+        except OSError:
+            pass
+        try:
+            self.sessions = {k: float(v) for k, v in json.loads(self.path.read_text("utf-8")).items()}
+        except Exception:
+            self.sessions = {}
+
+    def _set(self, user, password, default=False):
+        salt = secrets.token_hex(16)
+        self.cfg["auth"] = {"user": user, "salt": salt, "hash": pw_hash(password, salt), "default": default}
+        save_config(self.cfg)
+
+    def check(self, user, password):
+        a = self.cfg["auth"]
+        ok_user = hmac.compare_digest(str(user).strip().lower(), a["user"].lower())
+        ok_pw = hmac.compare_digest(pw_hash(str(password), a["salt"]), a["hash"])
+        return ok_user and ok_pw
+
+    def _save(self):
+        try:
+            self.path.write_text(json.dumps(self.sessions), "utf-8")
+        except OSError:
+            pass
+
+    def login(self):
+        token = secrets.token_urlsafe(32)
+        with self.lock:
+            now = time.time()
+            self.sessions = {k: v for k, v in self.sessions.items() if v > now}
+            self.sessions[token] = now + SESSION_DAYS * 86400
+            self._save()
+        return token
+
+    def valid(self, token):
+        return bool(token) and self.sessions.get(token, 0) > time.time()
+
+    def logout(self, token=None):
+        with self.lock:
+            if token:
+                self.sessions.pop(token, None)
+            else:
+                self.sessions = {}
+            self._save()
+
+    def change(self, current, user, password):
+        a = self.cfg["auth"]
+        if not hmac.compare_digest(pw_hash(str(current), a["salt"]), a["hash"]):
+            return "The current password is not correct."
+        user = str(user or a["user"]).strip()[:40]
+        password = str(password or "")
+        if not user:
+            return "Enter a username."
+        if len(password) < 4:
+            return "The new password must have at least 4 characters."
+        self._set(user, password)
+        return None
+
+    def view(self):
+        a = self.cfg["auth"]
+        return {"user": a["user"], "default": bool(a.get("default"))}
+
+
+LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fotoarhiva · Sign in</title><style>
+:root{--bg:#f3f4f7;--card:#fff;--ink:#16181d;--mut:#6b7080;--line:#dfe2ea;--acc:#2B5FD9;--bad:#d3463c}
+@media (prefers-color-scheme:dark){:root{--bg:#14161b;--card:#1d2027;--ink:#eceef3;--mut:#9aa0ad;--line:#30343e;--acc:#5b86f0;--bad:#f07068}}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+form{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px;width:100%;max-width:360px;display:grid;gap:14px;box-shadow:0 10px 40px rgba(0,0,0,.08)}
+h1{margin:0;font-size:22px}p{margin:0;color:var(--mut);font-size:13.5px}label{display:grid;gap:6px;font-size:13px;font-weight:600}
+input{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:transparent;color:inherit}input:focus{outline:2px solid var(--acc);outline-offset:-1px}
+button{font:inherit;font-weight:600;padding:11px;border:0;border-radius:10px;background:var(--acc);color:#fff;cursor:pointer}#err{color:var(--bad);font-size:13.5px;min-height:1em}
+.logo{width:44px;height:44px;border-radius:12px;background:var(--acc);display:grid;place-items:center}
+</style></head><body><form id="f"><div class="logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2"/><path d="m21 15-4.5-4.5L8 19"/></svg></div>
+<h1>Fotoarhiva</h1><p>Sign in to open your photos.</p>
+<label>Username<input id="u" autocomplete="username" autofocus required></label>
+<label>Password<input id="p" type="password" autocomplete="current-password" required></label>
+<div id="err"></div><button>Sign in</button></form>
+<script>document.getElementById('f').onsubmit=async e=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';
+const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:document.getElementById('u').value,password:document.getElementById('p').value})});
+if(r.ok)location.replace('/');else{err.textContent=(await r.json().catch(()=>({}))).error||'Sign-in failed.';document.getElementById('p').select()}}</script></body></html>"""
+
+
 def make_handler(app: App):
     ui_path = APP_DIR / "ui.html"
     port = int(app.cfg.get("port", 8765))
@@ -1552,8 +1658,25 @@ def make_handler(app: App):
                     self.wfile.write(chunk)
                     left -= len(chunk)
 
+        def token(self):
+            for part in (self.headers.get("Cookie") or "").split(";"):
+                k, _, v = part.strip().partition("=")
+                if k == "fa_session":
+                    return v
+            return ""
+
+        def authed(self):
+            return app.auth.valid(self.token())
+
         def do_GET(self):
             try:
+                if not self.authed():
+                    path = urlparse(self.path).path
+                    if path in ("/", "/index.html", "/login"):
+                        self.send_bytes(LOGIN_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                    else:
+                        self.send_json({"error": "Please sign in."}, 401)
+                    return
                 self.route_get()
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
                 pass
@@ -1625,7 +1748,54 @@ def make_handler(app: App):
             path, q = unquote(u.path), parse_qs(u.query)
             n = int(self.headers.get("Content-Length") or 0)
             lib = app.lib
+            if path == "/api/login":
+                try:
+                    data = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                except ValueError:
+                    data = {}
+                if app.auth.check(data.get("user", ""), data.get("password", "")):
+                    token = app.auth.login()
+                    b = b'{"ok": true}'
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(b)))
+                    self.send_header("Set-Cookie", f"fa_session={token}; Path=/; Max-Age={SESSION_DAYS * 86400}; HttpOnly; SameSite=Strict")
+                    self.end_headers()
+                    self.wfile.write(b)
+                else:
+                    time.sleep(1.0)  # slows down guessing
+                    self.send_json({"error": "Wrong username or password."}, 401)
+                return
+            if path == "/api/quit" and hmac.compare_digest(self.headers.get("X-Quit-Token") or "", app.auth.quit_token):
+                pass
+            elif not self.authed():
+                if n:
+                    self.rfile.read(n)
+                self.send_json({"error": "Please sign in."}, 401)
+                return
             try:
+                if path == "/api/logout":
+                    if n:
+                        self.rfile.read(n)
+                    app.auth.logout(self.token())
+                    self.send_json({"ok": True})
+                    return
+                if path == "/api/auth/change":
+                    data = json.loads(self.rfile.read(n) or b"{}") if n else {}
+                    err = app.auth.change(data.get("current", ""), data.get("user", ""), data.get("password", ""))
+                    if err:
+                        self.send_json({"error": err}, 400)
+                    else:
+                        app.auth.logout()                      # sign out everywhere else …
+                        token = app.auth.login()               # … but keep this window signed in
+                        b = json.dumps(app.config_view(), ensure_ascii=False).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json; charset=utf-8")
+                        self.send_header("Content-Length", str(len(b)))
+                        self.send_header("Set-Cookie", f"fa_session={token}; Path=/; Max-Age={SESSION_DAYS * 86400}; HttpOnly; SameSite=Strict")
+                        self.end_headers()
+                        self.wfile.write(b)
+                    return
                 if path == "/api/upload":
                     name = Path(unquote(self.headers.get("X-File-Name") or "slika.jpg")).name
                     mtime = float(self.headers.get("X-File-Mtime") or time.time() * 1000) / 1000

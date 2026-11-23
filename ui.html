@@ -332,6 +332,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 async function api(url,body){
   const r=await fetch(url,body!==undefined?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:undefined);
   const j=await r.json().catch(()=>({}));
+  if(r.status===401&&url!=='/api/auth/change'){location.reload();throw new Error('Please sign in.')}
   if(!r.ok)throw new Error(j.error||('Error '+r.status));
   return j;
 }
@@ -918,6 +919,15 @@ async function settings(){
       <div><button class="btn sm" id="st-addplace">${I.plus.replace('<svg','<svg width="15" height="15"')} Add place</button></div></div>
     ${cfg.windows?`<div class="setsec"><h4>Windows</h4><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="st-lnk">Create a Desktop icon</button></div>
       <label class="choice"><input type="checkbox" id="st-auto" ${cfg.autostart?'checked':''}><span><b>Start with Windows</b><small>Runs quietly in the background and organizes new photos without opening a window.</small></span></label></div>`:''}
+    <div class="setsec"><h4>Sign-in</h4>
+      <p class="muted" style="margin:0">Fotoarhiva asks for a username and password when it opens. ${(cfg.login||{}).default?'<b>You are using the default login (admin / 0409979). Change it here.</b>':'Signed in as <b>'+esc((cfg.login||{}).user||'')+'</b>.'}</p>
+      <div style="display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+        <input id="lg-user" placeholder="Username" value="${esc((cfg.login||{}).user||'')}" autocomplete="username">
+        <input id="lg-cur" type="password" placeholder="Current password" autocomplete="current-password">
+        <input id="lg-new" type="password" placeholder="New password" autocomplete="new-password">
+        <input id="lg-new2" type="password" placeholder="Repeat the new password" autocomplete="new-password">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="lg-save">Change username and password</button><button class="btn sm" id="lg-out">Sign out</button></div></div>
     <div class="setsec"><h4>About</h4><p class="muted" style="margin:0">Version ${esc(cfg.version)} · HEIC ${cfg.heif?'yes':'no'} · video thumbnails ${cfg.ffmpeg?'yes':'no'}</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="st-quit">Quit the app</button>${cfg.can_uninstall?'<button class="btn sm danger" id="st-uninst">Uninstall Fotoarhiva</button>':''}</div>
       ${cfg.can_uninstall?'<p class="muted" style="margin:0;font-size:12.5px">Uninstalling removes the program. Your photos and the organized library stay.</p>':''}</div>
@@ -956,6 +966,11 @@ async function settings(){
   const ln=c.querySelector('#st-lnk');if(ln)ln.onclick=async()=>{const r=await api('/api/system/shortcut',{});toast(r.result==='ok'?'The “Fotoarhiva” icon is on the Desktop':r.result)};
   const au=c.querySelector('#st-auto');if(au)au.onchange=async e=>{const r=await api('/api/system/autostart',{on:e.target.checked});toast(r.autostart?'Will start with Windows':'Won’t start with Windows')};
   const un=c.querySelector('#st-uninst');if(un)un.onclick=async()=>{if(!await confirmBox('Uninstall Fotoarhiva? Your photos and the library will not be deleted.','Uninstall'))return;await api('/api/system/uninstall',{}).catch(()=>{});document.body.innerHTML='<div style="display:grid;place-items:center;height:100%;font-size:18px;text-align:center;padding:20px">Opening the Fotoarhiva uninstaller.<br>You can close this window.</div>'};
+  c.querySelector('#lg-save').onclick=async()=>{
+    const v=id=>c.querySelector(id).value;
+    if(v('#lg-new')!==v('#lg-new2')){toast('The new passwords are not the same');return}
+    try{cfg=await api('/api/auth/change',{current:v('#lg-cur'),user:v('#lg-user'),password:v('#lg-new')});toast('Username and password changed');settings()}catch(e){toast(e.message)}};
+  c.querySelector('#lg-out').onclick=async()=>{await api('/api/logout',{}).catch(()=>{});location.reload()};
   c.querySelector('#st-quit').onclick=async()=>{if(!await confirmBox('Quit Fotoarhiva? New photos won’t be organized until you start it again.','Quit'))return;await api('/api/quit',{}).catch(()=>{});document.body.innerHTML='<div style="display:grid;place-items:center;height:100%;font-size:18px">Fotoarhiva has quit. You can close the window.</div>'};
   c.querySelector('#st-close').onclick=closeModal;
 }

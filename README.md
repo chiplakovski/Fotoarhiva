@@ -1,6 +1,6 @@
-# Fotoarhiva 2.5
+# Fotoarhiva 2.6
 
-**Download the installer:** [Fotoarhiva-Setup-2.5.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.5.0.exe)
+**Download the installer:** [Fotoarhiva-Setup-2.6.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.6.0.exe)
 
 Fotoarhiva is a Windows app that gathers all the photos on your computer in one place,
 organizes them by year and month and recognizes what is in them.
@@ -8,8 +8,8 @@ It opens in Chrome as its own window. Everything runs on your computer.
 
 ## Installation
 
-1. Download `Fotoarhiva-Setup-2.5.0.exe` and run it.
-   If Windows shows "Windows protected your PC": **More info → Run anyway**.
+1. Download `Fotoarhiva-Setup-2.6.0.exe` and run it.
+   If Windows shows "Windows protected your PC": **More info → Run anyway** (see below).
 2. Keep **"Recognition models"** ticked in the setup. They are downloaded during installation
    (~3.5 GB, a few minutes) so the app is complete.
 3. At the end Fotoarhiva opens with a welcome guide. **Nothing is recognized until you finish it:**
@@ -19,6 +19,23 @@ It opens in Chrome as its own window. Everything runs on your computer.
    - click **Start**. Only then do importing and recognition begin.
 
 There is a **Fotoarhiva** icon on the Desktop and in the Start menu.
+
+### Sign-in
+
+Fotoarhiva asks for a username and password when it opens. The default login is:
+
+- **Username:** `admin`
+- **Password:** `0409979`
+
+Change it in **Settings → Sign-in** (you need the current password). The window stays signed in for 30 days,
+or until you click **Sign out**. Changing the password signs out every other window.
+
+### "Windows protected your PC"
+
+Windows shows this for every program that is not signed with a paid code-signing certificate and is
+not yet known to Microsoft. Fotoarhiva is not signed, so click **More info → Run anyway**.
+The warning only goes away for good once the installer is signed (for example with Microsoft Trusted Signing)
+or installed from the Microsoft Store.
 
 Upgrading from a Macedonian version (2.4 or older) converts the library automatically:
 folder names (e.g. "07 - July", "Videos", "Screenshots", "Trash"), tags, sources and place names become English.
