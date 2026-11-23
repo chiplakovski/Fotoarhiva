@@ -58,8 +58,8 @@ from faces import Faces  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.8"
-NEWS_VERSION = "2.8"  # the "what's new" message is shown once per feature version
+VERSION = "2.9"
+NEWS_VERSION = "2.9"  # the "what's new" message is shown once per feature version
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}

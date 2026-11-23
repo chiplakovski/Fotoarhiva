@@ -8,7 +8,7 @@ SetCompressorDictSize 64
 !define APPNAME "Fotoarhiva"
 !define OLDNAME "Фотоархива"  ; shortcut name used by versions up to 2.4
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.8.0"
+!define VERSION "2.9.0"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -91,7 +91,7 @@ Function .onInit
   IfFileExists "$0\app\fotoarhiva.py" 0 fresh
     StrCpy $INSTDIR $0
     StrCpy $WTitle "Update Fotoarhiva"
-    StrCpy $WText "Fotoarhiva $OldVersion is installed on this computer. This updates it to version ${VERSION}.$\r$\n$\r$\nYour photos, albums, tags, settings, login and recognition models all stay. Models that are already installed are not downloaded again.$\r$\n$\r$\nNew: people recognition by face, better videos (all formats play, duration, place, recognition) and finding and deleting duplicates.$\r$\n$\r$\nIf Fotoarhiva is open, it is closed for the update.$\r$\n$\r$\nClick Next to update."
+    StrCpy $WText "Fotoarhiva $OldVersion is installed on this computer. This updates it to version ${VERSION}.$\r$\n$\r$\nYour photos, albums, tags, settings, login and recognition models all stay. Models that are already installed are not downloaded again.$\r$\n$\r$\nNew: years and months view, people recognition by face, better videos (all formats play, duration, place, recognition) and finding and deleting duplicates.$\r$\n$\r$\nIf Fotoarhiva is open, it is closed for the update.$\r$\n$\r$\nClick Next to update."
     StrCpy $FTitle "Fotoarhiva is updated"
     StrCpy $FText "Fotoarhiva is updated to version ${VERSION}. Your photos and settings are unchanged."
     Goto done

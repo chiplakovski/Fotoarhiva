@@ -137,6 +137,16 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
 .empty .btn{margin-top:14px}
 .sentinel{height:1px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.cards.sm{grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.cards.sm .card .cap{padding:8px 10px 10px}
+.zseg{display:flex;background:var(--surface-2);border-radius:9px;padding:3px;gap:2px}
+.zseg button{padding:5px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--fg-3)}
+.zseg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.ysec{margin-bottom:26px}
+.ysec>h3{font-size:18px;font-weight:800;margin:0 0 10px;display:flex;align-items:baseline;gap:10px}
+.ysec>h3 small{font-size:12.5px;font-weight:500;color:var(--fg-3)}
+.ysec>h3 button{margin-left:auto;font-size:12.5px;font-weight:600;color:var(--accent)}
+.crumb{background:none;border:0;padding:0;color:var(--accent);font:inherit;font-weight:600;cursor:pointer}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;cursor:pointer;text-align:left;padding:0;display:flex;flex-direction:column}
 .card:hover{border-color:var(--fg-3)}
 .card .cov{display:grid;grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr;gap:2px;aspect-ratio:16/10;background:var(--surface-2)}
@@ -315,6 +325,8 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
       <div class="notices" id="notices"></div>
       <div class="head"><div><h2 id="title">All photos</h2><p id="subtitle"></p></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap" id="headacts">
+          <button class="btn sm" id="zoomback" hidden>← Back</button>
+          <div class="zseg" id="zoomseg" role="group" aria-label="Group photos"><button data-z="years" aria-pressed="false">Years</button><button data-z="months" aria-pressed="false">Months</button><button data-z="all" aria-pressed="false">All photos</button></div>
           <button class="btn sm" id="sortbtn">Newest first</button>
           <button class="btn sm" id="renalbum" hidden>Rename</button>
           <button class="btn sm danger" id="delalbum" hidden>Delete album</button>
@@ -396,7 +408,7 @@ const I={
 
 // ===================================================================== state
 let data={photos:[],albums:[]},cfg={},status={},events=[],byId=new Map();
-const state={view:'all',key:null,chip:null,q:'',sortDesc:true,selecting:false,sel:new Set(),lb:null,version:-1,more:store.get('more',{}),closed:store.get('closed',{})};
+const state={view:'all',key:null,chip:null,q:'',sortDesc:true,selecting:false,sel:new Set(),lb:null,version:-1,more:store.get('more',{}),closed:store.get('closed',{apps:true,years:true})};
 let lastLoad=0;
 
 async function load(){
@@ -424,10 +436,48 @@ function buildEvents(){
     const topTag=Object.entries(tc).sort((a,b)=>b[1]-a[1])[0];
     const sameDay=e.first.toDateString()===e.last.toDateString();
     const range=sameDay?fmtDay(e.first):(e.first.getMonth()===e.last.getMonth()&&e.first.getFullYear()===e.last.getFullYear()?`${MONTHS[e.last.getMonth()].slice(0,3)} ${e.first.getDate()}–${e.last.getDate()}, ${e.last.getFullYear()}`:`${fmtDay(e.first)} – ${fmtDay(e.last)}`);
-    const title=places.length?places.slice(0,2).join(', '):(topTag&&topTag[1]>=e.ids.length/3?tagName(topTag[0]):(sameDay?'Day '+fmtDay(e.first):'Event'));
+    const days=Math.round((new Date(e.last.toDateString())-new Date(e.first.toDateString()))/864e5)+1;
+    const title=places.length?places.slice(0,2).join(', '):(topTag&&topTag[1]>=e.ids.length/3?tagName(topTag[0]):(sameDay?e.first.toLocaleDateString('en-US',{weekday:'long'}):`${days} days`));
     return {id:e.ids[0],ids:e.ids,title,range,first:e.first,count:e.ids.length};
   }).reverse();
 }
+
+// ===================================================================== years / months
+// A big library is shown as years → months → photos, so the screen isn't a wall of dates.
+state.zoom=store.get('zoom',null);state.drill=null;  // drill: {y} or {y,m}
+function zoomFor(list){
+  if(state.q||['trash','event','recent'].includes(state.view))return 'all';
+  if(state.drill)return state.drill.m!=null?'all':'months';
+  if(state.zoom)return state.zoom;
+  return list.length>300&&new Set(list.map(p=>p.year)).size>=3?'years':'all';   // automatic for big libraries
+}
+function cover(ps){  // up to 3 photos spread over the period, favorites first
+  const fav=ps.filter(p=>p.fav&&p.kind!=='video'),pool=ps.filter(p=>p.kind!=='screenshot');const src=pool.length?pool:ps;
+  const pick=[...fav.slice(0,1)];for(const f of [0,.5,.85]){const p=src[Math.floor(f*(src.length-1))];if(p&&!pick.includes(p))pick.push(p)}
+  return pick.slice(0,3).map(p=>`<img src="/thumb/${p.id}.jpg?r=${p.rot||0}" loading="lazy" alt="">`).join('');
+}
+const topPlaces=(ps,n=2)=>counts(ps,p=>p.myplace||p.place).slice(0,n).map(x=>x[0]).join(', ');
+function periodCard(ps,label,attr){
+  const pl=topPlaces(ps);
+  return `<button class="card" ${attr}><div class="cov">${cover(ps)}</div><div class="cap"><b>${esc(label)}</b><small class="num">${plural(ps.length,'photo','photos')}${pl?' · '+esc(pl):''}</small></div></button>`;
+}
+function renderYears(list){
+  const by=new Map();for(const p of list){if(!by.has(p.year))by.set(p.year,[]);by.get(p.year).push(p)}
+  const years=[...by.keys()].sort((a,b)=>state.sortDesc?b-a:a-b);
+  $('groups').innerHTML=`<div class="cards">${years.map(y=>periodCard(by.get(y),String(y),`data-y="${y}"`)).join('')}</div>`;
+  $('groups').querySelectorAll('[data-y]').forEach(b=>b.onclick=()=>{state.drill={y:+b.dataset.y};$('content').scrollTop=0;render()});
+}
+function renderMonths(list){
+  const by=new Map();for(const p of list){if(!by.has(p.year))by.set(p.year,new Map());const m=by.get(p.year),k=p.d.getMonth();if(!m.has(k))m.set(k,[]);m.get(k).push(p)}
+  const years=[...by.keys()].sort((a,b)=>state.sortDesc?b-a:a-b);
+  $('groups').innerHTML=years.map(y=>{const ms=by.get(y),n=[...ms.values()].reduce((s,a)=>s+a.length,0);
+    const keys=[...ms.keys()].sort((a,b)=>state.sortDesc?b-a:a-b);
+    return `<section class="ysec">${state.drill?'':`<h3>${y}<small class="num">${plural(n,'photo','photos')}</small><button data-yall="${y}">Open ${y}</button></h3>`}<div class="cards sm">${keys.map(m=>periodCard(ms.get(m),state.drill?MONTHS[m]:MONTHS[m],`data-ym="${y}-${m}"`)).join('')}</div></section>`}).join('');
+  $('groups').querySelectorAll('[data-ym]').forEach(b=>b.onclick=()=>{const [y,m]=b.dataset.ym.split('-').map(Number);state.drill={y,m};$('content').scrollTop=0;render()});
+  $('groups').querySelectorAll('[data-yall]').forEach(b=>b.onclick=()=>{state.drill={y:+b.dataset.yall};$('content').scrollTop=0;render()});
+}
+$('zoomseg').onclick=e=>{const b=e.target.closest('[data-z]');if(!b)return;state.zoom=b.dataset.z;store.set('zoom',state.zoom);state.drill=null;$('content').scrollTop=0;render()};
+$('zoomback').onclick=()=>{const d=state.drill;state.drill=d&&d.m!=null?{y:d.y}:null;$('content').scrollTop=0;render()};  // month → year → all years
 
 // ===================================================================== filtering
 const searchText=p=>(p._s||(p._s=[p.caption,p.name,...(p.people||[]),p.place,p.myplace,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
@@ -456,6 +506,7 @@ function baseList(){
 let sem={q:'',scores:new Map(),busy:false};
 function visible(){
   let list=baseList();
+  if(state.drill&&!state.q)list=list.filter(p=>p.year===state.drill.y&&(state.drill.m==null||p.d.getMonth()===state.drill.m));
   if(state.chip){const [t,val]=state.chip;list=list.filter(p=>t==='tag'?(p.tags||[]).includes(val):t==='kind'?p.kind===val:t==='myplace'?p.myplace===val:p.place===val)}
   if(state.q){
     const words=state.q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -504,9 +555,9 @@ function renderNav(){
   if(nv)h+=navBtn('kind','video',I.video,'Videos',nv);
   if(ns)h+=navBtn('kind','screenshot',I.screen,'Screenshots',ns);
   h+=section('albums','Albums',data.albums.map(a=>navBtn('album',a.id,`<span class="sw" style="background:${esc(a.color)}"></span>`,a.name,live.filter(p=>p.albums.includes(a.id)).length)),8,`<button class="navbtn" id="newalbum">${I.plus}<span class="lbl">New album</span></button>`);
-  h+=section('events','Events',events.map(e=>navBtn('event',e.id,I.star,`${e.title} · ${e.range}`,e.count)),5,events.length>5?navBtn('events',null,I.star,'All events',events.length):'');
+  h+=section('events','Events',events.slice(0,3).map(e=>navBtn('event',e.id,I.star,`${e.title} · ${e.range}`,e.count)),3,events.length>3?navBtn('events',null,I.star,'All events',events.length):'');
   h+=section('myplaces','My places',(cfg.my_places||[]).map(m=>navBtn('myplace',m.name,I.home,m.name,live.filter(p=>p.myplace===m.name).length)),8,`<button class="navbtn" id="addmyplace">${I.plus}<span class="lbl">Set Home, Work…</span></button>`);
-  h+=section('people','People',counts(live,p=>p.people).map(([k,n])=>navBtn('person',k,I.person,k,n)),8,counts(live,p=>p.people).length?'':'<div class="muted" style="font-size:12.5px;padding:2px 10px 6px">Open a photo and name a face. Fotoarhiva finds the same person in your other photos.</div>');
+  h+=section('people','People',counts(live,p=>p.people).map(([k,n])=>navBtn('person',k,I.person,k,n)),8,counts(live,p=>p.people).length?'':'<div class="muted" style="font-size:12.5px;padding:2px 10px 6px">Name a face in any photo</div>');
   h+=section('places','Places',counts(live,p=>p.place).map(([k,n])=>navBtn('place',k,I.pin,k,n)),6);
   h+=section('tags','What’s in the photos',counts(live,p=>p.tags).map(([k,n])=>navBtn('tag',k,`<span class="sw" style="background:${colorOf(k)};border-radius:50%"></span>`,tagName(k),n)),10);
   h+=section('apps','Source',counts(live,p=>p.app).map(([k,n])=>navBtn('app',k,I.src,k,n)),8);
@@ -526,7 +577,7 @@ function renderNav(){
     <button class="btn sm" id="openlib" style="margin-top:9px;width:100%;justify-content:center">Open the folder</button>`;
   $('openlib').onclick=()=>api('/api/open-library',{});
 }
-function go(view,key=null){state.view=view;state.key=key;state.chip=null;closeRail();$('content').scrollTop=0;render()}
+function go(view,key=null){state.view=view;state.key=key;state.chip=null;state.drill=null;closeRail();$('content').scrollTop=0;render()}
 
 // ===================================================================== notices (scan / AI / upload)
 let upload=null;
@@ -579,6 +630,7 @@ function render(){
   $('renperson').hidden=$('forgetperson').hidden=v!=='person';
   $('fixgroup').hidden=v!=='tag';
   $('sortbtn').hidden=v==='dups'||v==='events';
+  $('zoomseg').hidden=$('zoomback').hidden=true;
   if(v==='dups')return renderDups();
   if(v==='events')return renderEvents();
   const list=visible();
@@ -591,6 +643,11 @@ function render(){
   if(v==='myplace')sub='My place · ';
   if(v==='person')sub='Person · recognized by face · ';
   if(state.q&&v==='all')title='Results';
+  const z=zoomFor(list),d=state.drill;
+  $('zoomseg').hidden=!!(state.q||['trash','event','recent'].includes(v)||d||list.length<40);
+  $('zoomseg').querySelectorAll('[data-z]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.z===z)));
+  $('zoomback').hidden=!d;
+  if(d){sub=`${title} · `;title=d.m!=null?`${MONTHS[d.m]} ${d.y}`:String(d.y)}
   const smart=state.q&&sem.q===state.q&&sem.scores.size;
   $('title').textContent=title;
   const sz=list.reduce((s,p)=>s+p.size,0);
@@ -598,6 +655,9 @@ function render(){
   $('sortbtn').textContent=state.sortDesc?'Newest first':'Oldest first';
   renderChips();
   const wrap=$('groups');wrap.innerHTML='';
+  if(list.length&&z==='years'){renderYears(list);syncSel();return}
+  if(list.length&&z==='months'){renderMonths(list);syncSel();return}
+  const byDay=!!(d&&d.m!=null);  // inside one month: grouped by day
   if(!list.length){
     const emptyAll=!data.photos.length;
     wrap.innerHTML=`<div class="empty"><h3>${v==='trash'?'The trash is empty':emptyAll?'No photos yet':'No photos here'}</h3><p>${state.q?'Try a different search word.':emptyAll?(status.state==='scanning'?'Looking for photos on the computer, they will appear soon.':'Add photos from the computer or choose folders to watch.'):''}</p>${emptyAll&&status.state!=='scanning'?'<button class="btn primary" id="emptyadd">Add photos</button>':''}</div>`;
@@ -606,7 +666,7 @@ function render(){
   }
   const groups=new Map();
   if(smart){groups.set('smart',list)}
-  else for(const p of list){const k=`${p.year}-${p.d.getMonth()}`;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p)}
+  else for(const p of list){const k=byDay?`${p.year}-${p.d.getMonth()}-${p.d.getDate()}`:`${p.year}-${p.d.getMonth()}`;if(!groups.has(k))groups.set(k,[]);groups.get(k).push(p)}
   const queue=[...groups.values()];let pending=null;
   const sentinel=document.createElement('div');sentinel.className='sentinel';wrap.appendChild(sentinel);
   const io=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting))drawMore()},{root:$('content'),rootMargin:'800px'});
@@ -614,13 +674,13 @@ function render(){
     let drawn=0;
     while((queue.length||pending)&&drawn<240){
       const arr=pending||queue.shift();pending=null;
-      const d=arr[0].d,key=smart?'smart':`${arr[0].year}-${d.getMonth()}`;
+      const d=arr[0].d,key=smart?'smart':byDay?`${arr[0].year}-${d.getMonth()}-${d.getDate()}`:`${arr[0].year}-${d.getMonth()}`;
       let g=wrap.querySelector(`[data-g="${key}"]`);
       if(!g){
         const all=groups.get(key);
         const pl=counts(all,p=>p.place).slice(0,3).map(x=>x[0]).join(', ');
         g=document.createElement('section');g.className='group';g.dataset.g=key;
-        g.innerHTML=`<div class="group-h"><h3>${smart?'Best matches':MONTHS[d.getMonth()]+' '+d.getFullYear()}</h3><span class="num">${all.length}${pl?' · '+esc(pl):''}</span><button data-sel-group>Select all</button></div><div class="grid"></div>`;
+        g.innerHTML=`<div class="group-h"><h3>${smart?'Best matches':byDay?d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'}):MONTHS[d.getMonth()]+' '+d.getFullYear()}</h3><span class="num">${all.length}${pl?' · '+esc(pl):''}</span><button data-sel-group>Select all</button></div><div class="grid"></div>`;
         g.querySelector('[data-sel-group]').onclick=()=>{state.selecting=true;all.forEach(p=>state.sel.add(p.id));syncSel()};
         wrap.insertBefore(g,sentinel);
       }
@@ -634,7 +694,8 @@ function render(){
   drawMore();if(sentinel.isConnected)io.observe(sentinel);
 }
 function renderChips(){
-  const base=baseList(),chips=[];
+  const d=state.drill,chips=[];
+  const base=baseList().filter(p=>!d||state.q||(p.year===d.y&&(d.m==null||p.d.getMonth()===d.m)));
   if(!['tag','kind'].includes(state.view)){
     for(const [t,n] of counts(base,p=>p.tags).slice(0,10))chips.push(['tag',t,n]);
   }
@@ -667,7 +728,12 @@ function renderEvents(){
   $('subtitle').textContent=`${plural(events.length,'event','events')}, grouped automatically by time and place`;
   const wrap=$('groups');
   if(!events.length){wrap.innerHTML='<div class="empty"><h3>No events yet</h3><p>An event is a group of at least 5 photos taken in the same period, for example a trip or a celebration.</p></div>';return}
-  wrap.innerHTML=`<div class="cards">${events.map(e=>`<button class="card" data-e="${e.id}"><div class="cov">${e.ids.slice(0,3).map(id=>`<img src="/thumb/${id}.jpg" loading="lazy" alt="">`).join('')}</div><div class="cap"><b>${esc(e.title)}</b><small class="num">${esc(e.range)} · ${plural(e.count,'photo','photos')}</small></div></button>`).join('')}</div>`;
+  const card=e=>`<button class="card" data-e="${e.id}"><div class="cov">${e.ids.slice(0,3).map(id=>`<img src="/thumb/${id}.jpg" loading="lazy" alt="">`).join('')}</div><div class="cap"><b>${esc(e.title)}</b><small class="num">${esc(e.range)} · ${plural(e.count,'photo','photos')}</small></div></button>`;
+  const by=new Map();for(const e of events){const y=e.first.getFullYear();if(!by.has(y))by.set(y,[]);by.get(y).push(e)}
+  state.evOpen=state.evOpen||new Set();
+  wrap.innerHTML=[...by.entries()].map(([y,es])=>{const open=state.evOpen.has(y)||es.length<=6;
+    return `<section class="ysec"><h3>${y}<small class="num">${plural(es.length,'event','events')} · ${plural(es.reduce((n,e)=>n+e.count,0),'photo','photos')}</small>${es.length>6?`<button data-evy="${y}">${open?'Show fewer':'Show all '+es.length}</button>`:''}</h3><div class="cards sm">${(open?es:es.slice(0,5)).map(card).join('')}</div></section>`}).join('');
+  wrap.querySelectorAll('[data-evy]').forEach(b=>b.onclick=()=>{const y=+b.dataset.evy;state.evOpen.has(y)?state.evOpen.delete(y):state.evOpen.add(y);renderEvents()});
   wrap.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>go('event',+b.dataset.e));
 }
 const dupSel=new Set(),skipSel=new Set();
@@ -977,6 +1043,7 @@ function whatsNew(){
   const c=modal(`<h3>Fotoarhiva is updated to ${esc(cfg.version)}</h3>
     <p class="muted" style="margin:0">Your photos, albums, tags and settings are unchanged. What’s new:</p>
     <ul style="margin:0;padding-left:20px;line-height:1.6;font-size:14px">
+      <li><b>Years and months:</b> a big library is no longer a long wall of dates. Use <b>Years · Months · All photos</b> at the top: click a year to see its months, click a month to see its photos by day. Events are grouped by year, too.</li>
       <li><b>People:</b> open a photo and name a face (e.g. “Bozica”). Fotoarhiva finds the same person in all your photos and shows them under <b>People</b>. You can save them as an album. Everything stays on this computer.</li>
       <li><b>Albums:</b> “+ New album…” right in a photo’s details.</li>
       <li><b>Videos:</b> every format plays (MKV, AVI, MTS, iPhone HEVC… are converted automatically the first time), duration on each video, the place from the phone’s GPS, and videos are recognized and described like photos.</li>

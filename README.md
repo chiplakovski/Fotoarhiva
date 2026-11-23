@@ -1,6 +1,6 @@
-# Fotoarhiva 2.8
+# Fotoarhiva 2.9
 
-**Download the installer:** [Fotoarhiva-Setup-2.8.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.8.0.exe)
+**Download the installer:** [Fotoarhiva-Setup-2.9.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.9.0.exe)
 
 Fotoarhiva is a Windows app that gathers all the photos on your computer in one place,
 organizes them by year and month and recognizes what is in them.
@@ -8,7 +8,7 @@ It opens in Chrome as its own window. Everything runs on your computer.
 
 ## Installation
 
-1. Download `Fotoarhiva-Setup-2.8.0.exe` and run it.
+1. Download `Fotoarhiva-Setup-2.9.0.exe` and run it.
    If Windows shows "Windows protected your PC": **More info → Run anyway** (see below).
 2. Keep **"Recognition models"** ticked in the setup. They are downloaded during installation
    (~3.5 GB, a few minutes) so the app is complete.
@@ -106,6 +106,22 @@ If only some photos are wrong, select them and click **"Not this"**.
 - **Tag by hand:** tag one photo (e.g. "Stainless steel machines") and the app also tags many similar photos.
   The more examples, the better. Remove a wrong tag with ×, it won't come back.
 - **My categories:** in Settings add a name and a short description. Photos are re-evaluated right away.
+
+## Years, months and days
+
+So a big library doesn't become a long wall of dates, use the switch at the top: **Years · Months · All photos**.
+
+- **Years**: one card per year with a few photos, the count and the main places. Click a year →
+- its **months** as cards → click a month → its photos, grouped **by day** ("Saturday, Jul 14"). **← Back** goes up again.
+- **Months**: all months, grouped under their year.
+- **All photos**: every photo, grouped by month, as before.
+
+A library with more than 300 photos over 3 or more years opens in **Years** by default. Your choice is remembered.
+The filter chips at the top (places, tags) count only the year or month you are in.
+
+**Events** are grouped by year (5 per year, **Show all** for the rest) and have clearer names: the place,
+the main subject, the weekday for a one-day event or "3 days". The left menu shows only the latest three.
+Less-used menu sections (Source, Years) start collapsed. Click a section title to open or close it.
 
 ## People
 
