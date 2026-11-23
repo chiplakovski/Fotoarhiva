@@ -1029,6 +1029,8 @@ async function settings(){
         <input id="lg-new2" type="password" placeholder="Repeat the new password" autocomplete="new-password">
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="lg-save">Change username and password</button><button class="btn sm" id="lg-out">Sign out</button></div></div>
+    <div class="setsec"><h4>When the window is closed</h4>
+      <label class="choice"><input type="checkbox" id="st-keep" ${cfg.keep_running?'checked':''}><span><b>Keep working in the background</b><small>Fotoarhiva keeps watching your folders and recognizing photos after you close the window. When this is off, Fotoarhiva quits completely when you close the window, and Python no longer runs.${cfg.background?' <b>Right now it was started with Windows, so it runs in the background anyway.</b>':''}</small></span></label></div>
     <div class="setsec"><h4>About</h4><p class="muted" style="margin:0">Version ${esc(cfg.version)} · HEIC ${cfg.heif?'yes':'no'} · video thumbnails ${cfg.ffmpeg?'yes':'no'}</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" id="st-quit">Quit the app</button>${cfg.can_uninstall?'<button class="btn sm danger" id="st-uninst">Uninstall Fotoarhiva</button>':''}</div>
       ${cfg.can_uninstall?'<p class="muted" style="margin:0;font-size:12.5px">Uninstalling removes the program. Your photos and the organized library stay.</p>':''}</div>
@@ -1067,6 +1069,7 @@ async function settings(){
   const ln=c.querySelector('#st-lnk');if(ln)ln.onclick=async()=>{const r=await api('/api/system/shortcut',{});toast(r.result==='ok'?'The “Fotoarhiva” icon is on the Desktop':r.result)};
   const au=c.querySelector('#st-auto');if(au)au.onchange=async e=>{const r=await api('/api/system/autostart',{on:e.target.checked});toast(r.autostart?'Will start with Windows':'Won’t start with Windows')};
   const un=c.querySelector('#st-uninst');if(un)un.onclick=async()=>{if(!await confirmBox('Uninstall Fotoarhiva? Your photos and the library will not be deleted.','Uninstall'))return;await api('/api/system/uninstall',{}).catch(()=>{});document.body.innerHTML='<div style="display:grid;place-items:center;height:100%;font-size:18px;text-align:center;padding:20px">Opening the Fotoarhiva uninstaller.<br>You can close this window.</div>'};
+  c.querySelector('#st-keep').onchange=async e=>{await save({keep_running:e.target.checked});toast(e.target.checked?'Fotoarhiva keeps working after the window is closed':'Fotoarhiva quits when the window is closed')};
   c.querySelector('#lg-save').onclick=async()=>{
     const v=id=>c.querySelector(id).value;
     if(v('#lg-new')!==v('#lg-new2')){toast('The new passwords are not the same');return}
@@ -1188,6 +1191,7 @@ async function poll(){
   }
   setTimeout(poll,2000);
 }
+addEventListener('pagehide',()=>{try{navigator.sendBeacon('/api/bye')}catch(_){}});
 (async()=>{
   cfg=await api('/api/config');status=await api('/api/status');
 

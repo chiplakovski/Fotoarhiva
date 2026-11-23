@@ -2,7 +2,7 @@
 Runs on the computer: on an NVIDIA/AMD/Intel graphics card through DirectML, or on the processor.
 The model (~2.9 GB) is downloaded once from HuggingFace. Photos never leave the computer.
 """
-import json, os, queue, re, subprocess, sys, tempfile, threading, urllib.request
+import json, os, queue, re, subprocess, sys, tempfile, threading, time, urllib.request
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -84,6 +84,8 @@ class LocalVLM:
         self.device = ""
         self.enabled = False
         self.child = None
+        self.asleep = False                # the model was unloaded to free memory; it starts again when needed
+        self.last_used = time.time()
         self.log_path = os.environ.get("FOTOARHIVA_LOG", "")
         self.lock = threading.Lock()      # one description at a time (graphics memory is limited)
         ok, err = deps_ok()
@@ -164,6 +166,7 @@ class LocalVLM:
                     continue
                 child.call({"op": "test"}, timeout=600)
                 self.child = child
+                self.last_used = time.time()
                 self.device = "graphics card" if dev == "dml" else "processor (slower)"
                 self.state = "ready"
                 return
@@ -178,9 +181,31 @@ class LocalVLM:
                         pass
         self.state, self.message = "error", "The model could not be started: " + " | ".join(errors)[:300]
 
-    def _generate(self, image_path, question, max_new):
+    IDLE_RELEASE = 300  # seconds without work before the model is unloaded (it holds several GB of memory)
+
+    def release_if_idle(self):
+        if not self.child or self.state != "ready" or time.time() - self.last_used < self.IDLE_RELEASE:
+            return
+        if not self.lock.acquire(blocking=False):
+            return  # describing right now
         try:
-            return self.child.call({"op": "gen", "image": str(image_path), "q": question, "max": max_new}, timeout=900)["text"]
+            if self.child:
+                self.child.kill()
+                self.child = None
+                self.asleep = True
+        finally:
+            self.lock.release()
+
+    def _generate(self, image_path, question, max_new):
+        if self.child is None and self.asleep:
+            self.asleep = False
+            self.load()
+            if self.state != "ready" or self.child is None:
+                raise RuntimeError(self.message or "the model could not be started")
+        try:
+            text = self.child.call({"op": "gen", "image": str(image_path), "q": question, "max": max_new}, timeout=900)["text"]
+            self.last_used = time.time()
+            return text
         except ChildDied as e:
             # the process crashed while describing: next time use the processor
             if self.device.startswith("graphics"):

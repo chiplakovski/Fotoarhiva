@@ -8,7 +8,7 @@ SetCompressorDictSize 64
 !define APPNAME "Fotoarhiva"
 !define OLDNAME "Фотоархива"  ; shortcut name used by versions up to 2.4
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.7.0"
+!define VERSION "2.7.1"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"

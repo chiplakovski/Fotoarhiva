@@ -57,7 +57,8 @@ from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.7"
+VERSION = "2.7.1"
+NEWS_VERSION = "2.7"  # the "what's new" message is shown once per feature version
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -1605,8 +1606,11 @@ class App:
         rename_old_library(self.cfg)
         self.cfg.pop("tag_lang", None)
         self.auth = Auth(self.cfg)
+        self.background = False          # started without a window (Start with Windows): keeps running
+        self.last_ui = time.time()       # last request from an open window
+        self.bye_at = None               # the window said it is closing
         if not self.cfg.get("configured"):
-            self.cfg["seen_version"] = VERSION  # a new installation has no "what's new"
+            self.cfg["seen_version"] = NEWS_VERSION  # a new installation has no "what's new"
         for m in self.cfg.get("my_places", []):  # the old default names of my places
             m["name"] = OLD_PLACES.get(m.get("name"), m.get("name"))
         self.places = Places()
@@ -1701,13 +1705,16 @@ class App:
                 "cloud_enabled": self.cfg.get("describer") == "cloud", "describer": self.cfg.get("describer", "off"), "cloud_model": self.cloud.model,
                 "cloud_key_hint": ("…" + self.cfg["cloud_key"][-4:]) if self.cfg.get("cloud_key") else "",
                 "cloud_running": self.cfg.get("cloud_running", True), "login": self.auth.view(),
-                "whats_new": bool(self.cfg.get("configured")) and self.cfg.get("seen_version") != VERSION,
+                "whats_new": bool(self.cfg.get("configured")) and self.cfg.get("seen_version") != NEWS_VERSION,
+                "keep_running": bool(self.cfg.get("keep_running")), "background": self.background,
                 "cloud_models": [{"id": k, "name": v["name"], "usd_per_1000": v["usd_per_1000"]} for k, v in CLOUD_MODELS.items()], "can_uninstall": uninstaller() is not None,
                 "models": [{"id": k, "name": v["name"], "name_en": v["name_en"], "about": v["about"], "multilingual": v["multilingual"]} for k, v in MODELS.items()]}
 
     def update_config(self, data):
-        if data.get("seen_version") == VERSION:
-            self.cfg["seen_version"] = VERSION
+        if data.get("seen_version"):
+            self.cfg["seen_version"] = NEWS_VERSION
+        if "keep_running" in data:
+            self.cfg["keep_running"] = bool(data["keep_running"])
         if "sources" in data:
             srcs = []
             for s in data["sources"]:
@@ -1825,6 +1832,35 @@ class App:
                 time.sleep(5)
             time.sleep(2)
 
+    def shutdown(self):
+        """Quits cleanly: the describing process is stopped and the database is closed."""
+        print(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} · Fotoarhiva quits")
+        try:
+            if self.vlm.child:
+                self.vlm.child.kill()
+        except Exception:
+            pass
+        if self.lib.db_lock.acquire(timeout=10):
+            try:
+                self.lib.db.commit()
+                self.lib.db.close()
+            except Exception:
+                pass
+        os._exit(0)
+
+    def idle_watch(self):
+        """When the window is closed, the app quits too (unless it should keep working in the background)."""
+        while True:
+            time.sleep(4)
+            if self.background or self.cfg.get("keep_running"):
+                self.bye_at = None
+                continue
+            now = time.time()
+            if self.bye_at and now - self.bye_at > 12 and self.last_ui < self.bye_at + 1:
+                self.shutdown()   # the window was closed (a reload would have asked for the page again)
+            if now - self.last_ui > 600:
+                self.shutdown()   # no window has been open for 10 minutes
+
     def maintenance(self):
         """Background: updates videos from older versions and keeps the list of similar copies up to date."""
         while not self.cfg.get("configured"):
@@ -1838,6 +1874,7 @@ class App:
                     lib.video_backfill()
                 if lib.dups_dirty and lib.status["state"] != "scanning":
                     lib.similar_copies()
+                self.vlm.release_if_idle()
             except Exception as e:
                 print("Maintenance:", e)
             time.sleep(20)
@@ -1995,7 +2032,8 @@ button{font:inherit;font-weight:600;padding:11px;border:0;border-radius:10px;bac
 <label>Username<input id="u" autocomplete="username" autofocus required></label>
 <label>Password<input id="p" type="password" autocomplete="current-password" required></label>
 <div id="err"></div><button>Sign in</button></form>
-<script>document.getElementById('f').onsubmit=async e=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';
+<script>setInterval(()=>fetch('/api/ping').catch(()=>{}),20000);addEventListener('pagehide',()=>navigator.sendBeacon('/api/bye'));
+document.getElementById('f').onsubmit=async e=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';
 const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({user:document.getElementById('u').value,password:document.getElementById('p').value})});
 if(r.ok)location.replace('/');else{err.textContent=(await r.json().catch(()=>({}))).error||'Sign-in failed.';document.getElementById('p').select()}}</script></body></html>"""
 
@@ -2073,7 +2111,11 @@ def make_handler(app: App):
             return app.auth.valid(self.token())
 
         def do_GET(self):
+            app.last_ui = time.time()
             try:
+                if urlparse(self.path).path == "/api/ping":
+                    self.send_json({"ok": True})
+                    return
                 if not self.authed():
                     path = urlparse(self.path).path
                     if path in ("/", "/index.html", "/login"):
@@ -2158,6 +2200,13 @@ def make_handler(app: App):
             path, q = unquote(u.path), parse_qs(u.query)
             n = int(self.headers.get("Content-Length") or 0)
             lib = app.lib
+            if path == "/api/bye":
+                if n:
+                    self.rfile.read(n)
+                app.bye_at = time.time()
+                self.send_json({"ok": True})
+                return
+            app.last_ui = time.time()
             if path == "/api/login":
                 try:
                     data = json.loads(self.rfile.read(n) or b"{}") if n else {}
@@ -2330,7 +2379,7 @@ def make_handler(app: App):
                     threading.Timer(1.0, lambda: os._exit(0)).start()
                 elif path == "/api/quit":
                     self.send_json({"ok": True})
-                    threading.Timer(0.5, lambda: os._exit(0)).start()
+                    threading.Timer(0.5, app.shutdown).start()
                 else:
                     self.send_error(404)
             except Exception as e:
@@ -2423,13 +2472,15 @@ def main():
             open_in_chrome(url)
         return
     app.httpd.daemon_threads = True
+    app.background = no_browser
     print(f"--- {datetime.now():%Y-%m-%d %H:%M:%S} · Fotoarhiva {VERSION} running at {url}{' (safe mode)' if SAFE else ''}")
     print(f"Library: {app.lib.root}")
-    print("This window can stay minimized. Close it to quit the app.")
+    print("Fotoarhiva quits by itself when its window is closed" + (" (not now: it runs in the background)." if no_browser else "."))
     threading.Thread(target=app.watcher, daemon=True).start()
     threading.Thread(target=app.ai_worker, daemon=True).start()
     threading.Thread(target=app.maintenance, daemon=True).start()
     threading.Thread(target=app.cloud_worker, daemon=True).start()
+    threading.Thread(target=app.idle_watch, daemon=True).start()
     if not no_browser:
         threading.Timer(0.6, lambda: open_in_chrome(url)).start()
     try:

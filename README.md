@@ -1,6 +1,6 @@
-# Fotoarhiva 2.7
+# Fotoarhiva 2.7.1
 
-**Download the installer:** [Fotoarhiva-Setup-2.7.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.7.0.exe)
+**Download the installer:** [Fotoarhiva-Setup-2.7.1.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.7.1.exe)
 
 Fotoarhiva is a Windows app that gathers all the photos on your computer in one place,
 organizes them by year and month and recognizes what is in them.
@@ -8,7 +8,7 @@ It opens in Chrome as its own window. Everything runs on your computer.
 
 ## Installation
 
-1. Download `Fotoarhiva-Setup-2.7.0.exe` and run it.
+1. Download `Fotoarhiva-Setup-2.7.1.exe` and run it.
    If Windows shows "Windows protected your PC": **More info → Run anyway** (see below).
 2. Keep **"Recognition models"** ticked in the setup. They are downloaded during installation
    (~3.5 GB, a few minutes) so the app is complete.
@@ -172,6 +172,19 @@ Pictures\Fotoarhiva\
   Trash\          ← "deleted" photos, until you delete them permanently
   .fotoarhiva\    ← index and thumbnails (hidden folder, don't delete it)
 ```
+
+## Closing the app
+
+When you close the Fotoarhiva window, the app quits completely after a few seconds. Python and the
+recognition models no longer run and no memory is used. Work that was not finished (importing, recognition)
+continues the next time you open it.
+
+If you want Fotoarhiva to keep watching your folders and recognizing photos after the window is closed,
+turn on **Settings → When the window is closed → Keep working in the background**.
+When **Start with Windows** is on, the copy started with Windows always runs in the background.
+
+The photo describer (Qwen3-VL) is unloaded from memory after 5 minutes without work and starts again by itself
+when new photos arrive.
 
 ## Settings
 
