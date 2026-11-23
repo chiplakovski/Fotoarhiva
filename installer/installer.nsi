@@ -8,7 +8,7 @@ SetCompressorDictSize 64
 !define APPNAME "Fotoarhiva"
 !define OLDNAME "Фотоархива"  ; shortcut name used by versions up to 2.4
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.7.2"
+!define VERSION "2.8.0"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -91,7 +91,7 @@ Function .onInit
   IfFileExists "$0\app\fotoarhiva.py" 0 fresh
     StrCpy $INSTDIR $0
     StrCpy $WTitle "Update Fotoarhiva"
-    StrCpy $WText "Fotoarhiva $OldVersion is installed on this computer. This updates it to version ${VERSION}.$\r$\n$\r$\nYour photos, albums, tags, settings, login and recognition models all stay. Nothing is downloaded again.$\r$\n$\r$\nNew: better videos (all formats play, duration, place, recognition) and finding and deleting duplicates.$\r$\n$\r$\nIf Fotoarhiva is open, it is closed for the update.$\r$\n$\r$\nClick Next to update."
+    StrCpy $WText "Fotoarhiva $OldVersion is installed on this computer. This updates it to version ${VERSION}.$\r$\n$\r$\nYour photos, albums, tags, settings, login and recognition models all stay. Models that are already installed are not downloaded again.$\r$\n$\r$\nNew: people recognition by face, better videos (all formats play, duration, place, recognition) and finding and deleting duplicates.$\r$\n$\r$\nIf Fotoarhiva is open, it is closed for the update.$\r$\n$\r$\nClick Next to update."
     StrCpy $FTitle "Fotoarhiva is updated"
     StrCpy $FText "Fotoarhiva is updated to version ${VERSION}. Your photos and settings are unchanged."
     Goto done
@@ -207,7 +207,7 @@ SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "The Fotoarhiva program."
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecModels} "Quick recognition (SigLIP 2) and the photo describer (Qwen3-VL 4B). Downloaded now so the app is complete. If unchecked, they are downloaded later."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecModels} "Quick recognition (SigLIP 2), the photo describer (Qwen3-VL 4B) and face recognition (YuNet + SFace). Downloaded now so the app is complete. If unchecked, they are downloaded later."
 !insertmacro MUI_FUNCTION_DESCRIPTION_END
 
 Section "Uninstall"

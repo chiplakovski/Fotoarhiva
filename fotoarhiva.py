@@ -54,11 +54,12 @@ from places import Places  # noqa: E402
 from ai import AI, MODELS, DEFAULT_MODEL, LABELS, MK2EN, BUILTIN, labels_public  # noqa: E402
 from cloud import CloudAI, CLOUD_MODELS, DEFAULT_CLOUD_MODEL  # noqa: E402
 from vlm import LocalVLM  # noqa: E402
+from faces import Faces  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.7.2"
-NEWS_VERSION = "2.7"  # the "what's new" message is shown once per feature version
+VERSION = "2.8"
+NEWS_VERSION = "2.8"  # the "what's new" message is shown once per feature version
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -250,6 +251,8 @@ def delete_to_recycle_bin(p: Path):
 DUP_BITS = 22          # how many of the 256 picture-hash bits may differ between two copies of the same photo
 DUP_BITS_NO_AI = 14    # stricter when there are no recognition vectors to confirm it
 DUP_COS = 0.90         # and the recognition vectors must agree this much
+FACE_AUTO = 0.46       # a face gets a person's name automatically above this similarity to a face you named
+FACE_MARGIN = 0.04     # … and only if it is clearly closer to that person than to anyone else
 POPCOUNT = bytes(bin(i).count("1") for i in range(256))
 
 
@@ -441,13 +444,17 @@ class Library:
             CREATE TABLE IF NOT EXISTS emb(photo_id INTEGER PRIMARY KEY, v BLOB);
             CREATE TABLE IF NOT EXISTS phash(photo_id INTEGER PRIMARY KEY, h BLOB);
             CREATE TABLE IF NOT EXISTS dup_ignore(a INTEGER, b INTEGER, UNIQUE(a, b));
+            CREATE TABLE IF NOT EXISTS faces(id INTEGER PRIMARY KEY, photo_id INTEGER, x REAL, y REAL, w REAL, h REAL,
+                                             score REAL, v BLOB, person TEXT, by TEXT);
+            CREATE INDEX IF NOT EXISTS idx_faces_photo ON faces(photo_id);
+            CREATE TABLE IF NOT EXISTS face_reject(face_id INTEGER, person TEXT, UNIQUE(face_id, person));
             CREATE INDEX IF NOT EXISTS idx_photos_taken ON photos(taken);
             CREATE INDEX IF NOT EXISTS idx_tags_photo ON tags(photo_id);
             """)
             cols = {r["name"] for r in self.db.execute("PRAGMA table_info(photos)")}
             for c, t in (("app", "TEXT"), ("orig", "TEXT"), ("place", "TEXT"), ("country", "TEXT"),
                          ("rot", "INTEGER DEFAULT 0"), ("ai_done", "INTEGER DEFAULT 0"), ("how", "TEXT"), ("caption", "TEXT"), ("cloud_done", "INTEGER DEFAULT 0"),
-                         ("dur", "REAL"), ("codec", "TEXT")):
+                         ("dur", "REAL"), ("codec", "TEXT"), ("faces_done", "INTEGER DEFAULT 0")):
                 if c not in cols:
                     self.db.execute(f"ALTER TABLE photos ADD COLUMN {c} {t}")
             try:
@@ -952,6 +959,9 @@ class Library:
                 tg.setdefault(r["photo_id"], []).append(r["tag"])
                 tb.setdefault(r["photo_id"], {})[r["tag"]] = r["by"]
             albums = [dict(r) for r in self.db.execute("SELECT * FROM albums ORDER BY name")]
+            people = {}
+            for r in self.db.execute("SELECT DISTINCT photo_id, person FROM faces WHERE person IS NOT NULL"):
+                people.setdefault(r["photo_id"], []).append(r["person"])
             dups = self.db.execute("SELECT COUNT(*) c FROM seen WHERE result='duplicate'").fetchone()["c"]
         dups += sum(len(g["ids"]) - 1 for g in self.dup_groups)
         mine = [p for p in self.cfg.get("my_places", []) if p.get("lat") is not None]
@@ -964,7 +974,7 @@ class Library:
                 if haversine(lat, lon, m["lat"], m["lon"]) <= r and r < br:
                     best, br = m["name"], r
             return best
-        photos = [dict(r, albums=ap.get(r["id"], []), tags=tg.get(r["id"], []), tagby=tb.get(r["id"], {}), myplace=myplace(r["lat"], r["lon"])) for r in rows]
+        photos = [dict(r, people=people.get(r["id"], []), albums=ap.get(r["id"], []), tags=tg.get(r["id"], []), tagby=tb.get(r["id"], {}), myplace=myplace(r["lat"], r["lon"])) for r in rows]
         try:
             total = shutil.disk_usage(self.root)[0]
         except Exception:
@@ -1125,6 +1135,176 @@ class Library:
             self.db.commit()
         self.dups_dirty = True
 
+    # ---- people (faces)
+    def face_pending(self):
+        with self.db_lock:
+            return self.db.execute("SELECT COUNT(*) c FROM photos WHERE faces_done=0 AND trash=0").fetchone()["c"]
+
+    def _face_image(self, r):
+        """The photo as shown (turned the right way), at most 1600 px; videos through their thumbnail."""
+        f = self.abs(r["path"])
+        if r["kind"] == "video" or f.suffix.lower() not in IMAGE_EXT:
+            im = Image.open(self.thumbs / f"{r['id']}.jpg")
+            im.load()
+            return im.convert("RGB")
+        with Image.open(f) as im:
+            try:
+                im.draft("RGB", (1600, 1600))
+            except Exception:
+                pass
+            t = ImageOps.exif_transpose(im).convert("RGB")
+        t.thumbnail((1600, 1600))
+        if r["rot"]:
+            t = t.rotate(-r["rot"], expand=True)
+        return t
+
+    def face_step(self, faces, batch=8):
+        with self.db_lock:
+            rows = self.db.execute("SELECT id, path, kind, rot FROM photos WHERE faces_done=0 AND trash=0 LIMIT ?", (batch,)).fetchall()
+        if not rows:
+            return False
+        new = []
+        for r in rows:
+            try:
+                found = faces.analyze(self._face_image(r))
+            except Exception:
+                found = []
+            with self.db_lock:
+                old = {x["id"]: x for x in self.db.execute("SELECT id, x, y, w, h, person, by FROM faces WHERE photo_id=?", (r["id"],))}
+                for fid in old:
+                    crop = self.meta / "faces" / f"{fid}.jpg"
+                    if crop.exists():
+                        crop.unlink()
+                self.db.execute("DELETE FROM faces WHERE photo_id=?", (r["id"],))
+                for (x, y, w, h), score, v in found:
+                    # a face that was already named keeps its name when the photo is analyzed again (e.g. after rotating)
+                    keep = next((o for o in old.values() if o["by"] == "user" and abs(o["x"] - x) < 0.08 and abs(o["y"] - y) < 0.08), None)
+                    cur = self.db.execute("INSERT INTO faces(photo_id,x,y,w,h,score,v,person,by) VALUES(?,?,?,?,?,?,?,?,?)",
+                                          (r["id"], x, y, w, h, score, v.tobytes(), keep["person"] if keep else None, "user" if keep else None))
+                    new.append(cur.lastrowid)
+                self.db.execute("UPDATE photos SET faces_done=1 WHERE id=?", (r["id"],))
+                self.db.commit()
+        if new:
+            self.assign_faces(new)
+        self.bump()
+        return True
+
+    def assign_faces(self, only=None):
+        """Faces get the name of the person they look like, compared with the faces you named yourself."""
+        import numpy as np
+        with self.db_lock:
+            refs = self.db.execute("SELECT id, person, v FROM faces WHERE by='user' AND person IS NOT NULL").fetchall()
+            if only is not None:
+                q = ",".join("?" * len(only))
+                targets = self.db.execute(f"SELECT id, person, by, v FROM faces WHERE id IN ({q}) AND (by IS NULL OR by='auto')", list(only)).fetchall()
+            else:
+                targets = self.db.execute("SELECT id, person, by, v FROM faces WHERE by IS NULL OR by='auto'").fetchall()
+            rejected = {(r[0], r[1]) for r in self.db.execute("SELECT face_id, person FROM face_reject")}
+        changed = 0
+        names = sorted({r["person"] for r in refs})
+        R = np.stack([np.frombuffer(r["v"], dtype=np.float32) for r in refs]) if refs else None
+        who = np.array([names.index(r["person"]) for r in refs]) if refs else None
+        updates = []
+        for k in range(0, len(targets), 2048):
+            chunk = targets[k:k + 2048]
+            best_name = [None] * len(chunk)
+            if R is not None:
+                T = np.stack([np.frombuffer(t["v"], dtype=np.float32) for t in chunk])
+                S = T @ R.T
+                per = np.full((len(chunk), len(names)), -1.0, dtype=np.float32)
+                for j in range(len(names)):
+                    per[:, j] = S[:, who == j].max(1)
+                for i, t in enumerate(chunk):
+                    order = np.argsort(-per[i])
+                    while len(order) and (t["id"], names[order[0]]) in rejected:
+                        order = order[1:]
+                    if not len(order):
+                        continue
+                    top = per[i, order[0]]
+                    second = max([per[i, j] for j in range(len(names)) if j != order[0]], default=-1.0)
+                    if top >= FACE_AUTO and top - second >= FACE_MARGIN:
+                        best_name[i] = names[order[0]]
+            for i, t in enumerate(chunk):
+                n = best_name[i]
+                if n != t["person"]:
+                    updates.append((n, "auto" if n else None, t["id"]))
+        if updates:
+            with self.db_lock:
+                self.db.executemany("UPDATE faces SET person=?, by=? WHERE id=?", updates)
+                self.db.commit()
+            changed = len(updates)
+        return changed
+
+    def photo_faces(self, pid):
+        with self.db_lock:
+            return [dict(r) for r in self.db.execute("SELECT id, x, y, w, h, person, by FROM faces WHERE photo_id=? ORDER BY w * h DESC", (pid,))]
+
+    def name_face(self, fid, name):
+        """You say who this is (or clear it). Then every face is compared again."""
+        name = (name or "").strip()[:40]
+        with self.db_lock:
+            f = self.db.execute("SELECT id, person, by FROM faces WHERE id=?", (fid,)).fetchone()
+            if not f:
+                return None
+            if name:
+                self.db.execute("UPDATE faces SET person=?, by='user' WHERE id=?", (name, fid))
+                self.db.execute("DELETE FROM face_reject WHERE face_id=? AND person=?", (fid, name))
+            else:
+                if f["person"]:
+                    self.db.execute("INSERT OR IGNORE INTO face_reject VALUES(?,?)", (fid, f["person"]))
+                self.db.execute("UPDATE faces SET person=NULL, by=NULL WHERE id=?", (fid,))
+            self.db.commit()
+        self.assign_faces()
+        self.bump()
+        with self.db_lock:
+            n = self.db.execute("""SELECT COUNT(DISTINCT f.photo_id) c FROM faces f JOIN photos p ON p.id = f.photo_id
+                                   WHERE f.person=? AND p.trash=0""", (name,)).fetchone()["c"] if name else 0
+        return n
+
+    def not_person(self, person, ids):
+        """These photos are not this person: the name is taken off and never comes back on them."""
+        with self.db_lock:
+            q = ",".join("?" * len(ids))
+            rows = self.db.execute(f"SELECT id FROM faces WHERE person=? AND photo_id IN ({q})", [person, *ids]).fetchall()
+            for r in rows:
+                self.db.execute("INSERT OR IGNORE INTO face_reject VALUES(?,?)", (r["id"], person))
+                self.db.execute("UPDATE faces SET person=NULL, by=NULL WHERE id=?", (r["id"],))
+            self.db.commit()
+        self.assign_faces()
+        self.bump()
+        return len(rows)
+
+    def rename_person(self, old, new):
+        new = (new or "").strip()[:40]
+        with self.db_lock:
+            if new:
+                self.db.execute("UPDATE faces SET person=? WHERE person=?", (new, old))
+                self.db.execute("UPDATE face_reject SET person=? WHERE person=?", (new, old))
+            else:  # forget the person
+                self.db.execute("UPDATE faces SET person=NULL, by=NULL WHERE person=?", (old,))
+                self.db.execute("DELETE FROM face_reject WHERE person=?", (old,))
+            self.db.commit()
+        self.bump()
+
+    def face_crop(self, fid):
+        out = self.meta / "faces" / f"{fid}.jpg"
+        if out.exists():
+            return out
+        with self.db_lock:
+            r = self.db.execute("""SELECT f.x, f.y, f.w, f.h, p.id, p.path, p.kind, p.rot FROM faces f JOIN photos p ON p.id = f.photo_id
+                                   WHERE f.id=?""", (fid,)).fetchone()
+        if not r:
+            return None
+        im = self._face_image(r)
+        W, H = im.size
+        cx, cy, side = (r["x"] + r["w"] / 2) * W, (r["y"] + r["h"] / 2) * H, max(r["w"] * W, r["h"] * H) * 1.5
+        box = (int(max(0, cx - side / 2)), int(max(0, cy - side / 2)), int(min(W, cx + side / 2)), int(min(H, cy + side / 2)))
+        out.parent.mkdir(exist_ok=True)
+        c = im.crop(box)
+        c.thumbnail((160, 160))
+        c.save(out, "JPEG", quality=85)
+        return out
+
     # ---- videos
     def video_backfill(self):
         """Videos added by older versions: duration, codecs, size, GPS and a better thumbnail; then recognition."""
@@ -1227,7 +1407,7 @@ class Library:
                 self.db.execute("UPDATE photos SET fav=? WHERE id=?", (1 if data["fav"] else 0, pid))
             if "rotate" in data:
                 rot = (int(p["rot"] or 0) + int(data["rotate"])) % 360
-                self.db.execute("UPDATE photos SET rot=? WHERE id=?", (rot, pid))
+                self.db.execute("UPDATE photos SET rot=?, faces_done=0 WHERE id=?", (rot, pid))
                 self.make_thumb(pid, self.abs(p["path"]), p["kind"], rot)
                 pv = self.previews / f"{pid}.jpg"
                 if pv.exists():
@@ -1284,8 +1464,13 @@ class Library:
                 for t in (self.thumbs / f"{pid}.jpg", self.previews / f"{pid}.jpg", self.vcache / f"{pid}.mp4"):
                     if t.exists():
                         t.unlink()
+                for fr in self.db.execute("SELECT id FROM faces WHERE photo_id=?", (pid,)).fetchall():
+                    self.db.execute("DELETE FROM face_reject WHERE face_id=?", (fr["id"],))
+                    crop = self.meta / "faces" / f"{fr['id']}.jpg"
+                    if crop.exists():
+                        crop.unlink()
                 for tbl in ("photos WHERE id", "album_photos WHERE photo_id", "tags WHERE photo_id", "emb WHERE photo_id",
-                            "hidden_tags WHERE photo_id", "phash WHERE photo_id", "dup_ignore WHERE a", "dup_ignore WHERE b"):
+                            "hidden_tags WHERE photo_id", "phash WHERE photo_id", "dup_ignore WHERE a", "dup_ignore WHERE b", "faces WHERE photo_id"):
                     self.db.execute(f"DELETE FROM {tbl}=?", (pid,))
                 self.dups_dirty = True
             self.db.commit()
@@ -1606,6 +1791,7 @@ class App:
         rename_old_library(self.cfg)
         self.cfg.pop("tag_lang", None)
         self.auth = Auth(self.cfg)
+        self.faces = Faces(DATA_DIR / "models")
         self.background = False          # started without a window (Start with Windows): keeps running
         self.last_ui = time.time()       # last request from an open window
         self.bye_at = None               # the window said it is closing
@@ -1693,6 +1879,7 @@ class App:
         s["ai"] = self.ai.info()
         if self.ai.state == "ready":
             s["ai_pending"] = self.lib.ai_pending()
+        s["faces_pending"] = self.lib.face_pending() if self.cfg.get("faces", True) else 0
         return s
 
     def config_view(self):
@@ -1707,12 +1894,15 @@ class App:
                 "cloud_running": self.cfg.get("cloud_running", True), "login": self.auth.view(),
                 "whats_new": bool(self.cfg.get("configured")) and self.cfg.get("seen_version") != NEWS_VERSION,
                 "keep_running": bool(self.cfg.get("keep_running")), "background": self.background,
+                "faces": self.cfg.get("faces", True), "faces_state": self.faces.state,
                 "cloud_models": [{"id": k, "name": v["name"], "usd_per_1000": v["usd_per_1000"]} for k, v in CLOUD_MODELS.items()], "can_uninstall": uninstaller() is not None,
                 "models": [{"id": k, "name": v["name"], "name_en": v["name_en"], "about": v["about"], "multilingual": v["multilingual"]} for k, v in MODELS.items()]}
 
     def update_config(self, data):
         if data.get("seen_version"):
             self.cfg["seen_version"] = NEWS_VERSION
+        if "faces" in data:
+            self.cfg["faces"] = bool(data["faces"])
         if "keep_running" in data:
             self.cfg["keep_running"] = bool(data["keep_running"])
         if "sources" in data:
@@ -1872,6 +2062,11 @@ class App:
                 if updated is not lib:
                     updated = lib
                     lib.video_backfill()
+                if not self.safe and self.cfg.get("faces", True) and lib.status["state"] != "scanning" \
+                        and lib.face_pending() and self.faces.load():
+                    if lib.face_step(self.faces):
+                        time.sleep(0.05)
+                        continue
                 if lib.dups_dirty and lib.status["state"] != "scanning":
                     lib.similar_copies()
                 self.vlm.release_if_idle()
@@ -2141,6 +2336,15 @@ def make_handler(app: App):
                 self.send_json(app.config_view())
             elif path == "/api/duplicates":
                 self.send_json({"similar": lib.similar_copies(), "skipped": lib.skipped_duplicates(), "windows": IS_WIN})
+            elif path.startswith("/api/faces/"):
+                pid = path.rsplit("/", 1)[1]
+                self.send_json(lib.photo_faces(int(pid)) if pid.isdigit() else [])
+            elif path.startswith("/facecrop/"):
+                fid = path.split("/")[2].split(".")[0]
+                try:
+                    self.send_file(lib.face_crop(int(fid)) if fid.isdigit() else None, cache=False)
+                except Exception:
+                    self.send_error(404)
             elif path.startswith("/api/video/"):
                 pid = path.rsplit("/", 1)[1]
                 self.send_json(lib.video_state(int(pid)) if pid.isdigit() else {"state": "none"})
@@ -2280,6 +2484,14 @@ def make_handler(app: App):
                 if path.startswith("/api/video/") and path.endswith("/prepare"):
                     pid = parts[2] if len(parts) > 2 else ""
                     self.send_json(lib.prepare_video(int(pid)) if pid.isdigit() else {"state": "none"})
+                elif parts[:2] == ["api", "face"] and len(parts) == 4 and parts[2].isdigit() and parts[3] == "name":
+                    n = lib.name_face(int(parts[2]), str(data.get("name", "")))
+                    self.send_json({"ok": n is not None, "photos": n or 0})
+                elif path == "/api/people/not":
+                    self.send_json({"removed": lib.not_person(str(data.get("person", "")), ids)})
+                elif path == "/api/people/rename":
+                    lib.rename_person(str(data.get("old", "")), str(data.get("new", "")))
+                    self.send_json({"ok": True})
                 elif path == "/api/duplicates/ignore":
                     lib.ignore_duplicates(ids)
                     self.send_json({"ok": True})
@@ -2416,6 +2628,11 @@ def install_models():
     a = AI(DATA_DIR / "models", cfg.get("model", DEFAULT_MODEL))
     v = LocalVLM(DATA_DIR / "models")
     ok = True
+    f = Faces(DATA_DIR / "models")
+    print("Face recognition (YuNet + SFace, ~39 MB): " + ("already installed" if f.downloaded() else "downloading..."), flush=True)
+    if not f.downloaded():
+        f.download()
+        print("Face recognition: " + ("done" if f.downloaded() else "FAILED - " + f.message.encode("ascii", "replace").decode()), flush=True)
     for name, obj in (("Quick recognition (SigLIP 2, ~400 MB)", a), ("Photo describer (Qwen3-VL 4B, ~3 GB)", v)):
         if obj.state == "missing_deps":
             print(f"{name}: skipped (engine missing)", flush=True)

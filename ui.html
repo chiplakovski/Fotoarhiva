@@ -146,6 +146,14 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
 .card .cap b{display:block;font-size:14px}
 .card .cap small{color:var(--fg-3)}
 .duplist{display:flex;flex-direction:column;gap:6px}
+.faces{display:flex;flex-wrap:wrap;gap:10px}
+.face{display:flex;flex-direction:column;align-items:center;gap:5px;width:92px}
+.face img{width:64px;height:64px;border-radius:50%;object-fit:cover;background:#2a2e38;border:2px solid transparent}
+.face.named img{border-color:#5b86f0}
+.face .nm{font-size:12px;font-weight:600;text-align:center;overflow-wrap:anywhere;display:flex;gap:2px;align-items:center}
+.face .nm button{background:none;border:0;color:#8A91A0;cursor:pointer;font-size:14px;padding:0 2px}
+.face .auto{font-size:10.5px;color:#8A91A0}
+.face input{width:92px;font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid #3a3f4b;background:#1b1e25;color:#eceef3}
 .dupbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 12px}
 .dupbar .grow{flex:1}
 .dupsec{margin-bottom:34px}
@@ -311,6 +319,8 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
           <button class="btn sm" id="renalbum" hidden>Rename</button>
           <button class="btn sm danger" id="delalbum" hidden>Delete album</button>
           <button class="btn sm" id="saveevent" hidden>Save as album</button>
+          <button class="btn sm" id="renperson" hidden>Rename</button>
+          <button class="btn sm danger" id="forgetperson" hidden>Forget this person</button>
           <button class="btn sm primary" id="fixgroup" hidden>Not right? Fix it</button>
         </div></div>
       <div class="chips" id="chips" role="group" aria-label="Filter"></div>
@@ -377,6 +387,7 @@ const I={
   pin:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg>',
   star:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>',
   dup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>',
+  person:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>',
   home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 11 12 4l9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>',
   src:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 6h16v10H8l-4 4z"/></svg>',
   chev:'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
@@ -419,7 +430,7 @@ function buildEvents(){
 }
 
 // ===================================================================== filtering
-const searchText=p=>(p._s||(p._s=[p.caption,p.name,p.place,p.myplace,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
+const searchText=p=>(p._s||(p._s=[p.caption,p.name,...(p.people||[]),p.place,p.myplace,p.country,p.app,p.cam,p.year,MONTHS[p.d.getMonth()],KINDS[p.kind],...(p.tags||[]),...p.albums.map(a=>(data.albums.find(x=>x.id===a)||{}).name)].filter(Boolean).join(' ').toLowerCase()));
 function baseList(){
   const now=Date.now(),v=state.view,k=state.key;
   let ev=v==='event'?new Set((events.find(e=>e.id===k)||{ids:[]}).ids):null;
@@ -435,6 +446,7 @@ function baseList(){
       case 'tag':return (p.tags||[]).includes(k);
       case 'place':return p.place===k;
       case 'myplace':return p.myplace===k;
+      case 'person':return (p.people||[]).includes(k);
       case 'app':return p.app===k;
       case 'event':return ev.has(p.id);
     }
@@ -494,6 +506,7 @@ function renderNav(){
   h+=section('albums','Albums',data.albums.map(a=>navBtn('album',a.id,`<span class="sw" style="background:${esc(a.color)}"></span>`,a.name,live.filter(p=>p.albums.includes(a.id)).length)),8,`<button class="navbtn" id="newalbum">${I.plus}<span class="lbl">New album</span></button>`);
   h+=section('events','Events',events.map(e=>navBtn('event',e.id,I.star,`${e.title} · ${e.range}`,e.count)),5,events.length>5?navBtn('events',null,I.star,'All events',events.length):'');
   h+=section('myplaces','My places',(cfg.my_places||[]).map(m=>navBtn('myplace',m.name,I.home,m.name,live.filter(p=>p.myplace===m.name).length)),8,`<button class="navbtn" id="addmyplace">${I.plus}<span class="lbl">Set Home, Work…</span></button>`);
+  h+=section('people','People',counts(live,p=>p.people).map(([k,n])=>navBtn('person',k,I.person,k,n)),8,counts(live,p=>p.people).length?'':'<div class="muted" style="font-size:12.5px;padding:2px 10px 6px">Open a photo and name a face. Fotoarhiva finds the same person in your other photos.</div>');
   h+=section('places','Places',counts(live,p=>p.place).map(([k,n])=>navBtn('place',k,I.pin,k,n)),6);
   h+=section('tags','What’s in the photos',counts(live,p=>p.tags).map(([k,n])=>navBtn('tag',k,`<span class="sw" style="background:${colorOf(k)};border-radius:50%"></span>`,tagName(k),n)),10);
   h+=section('apps','Source',counts(live,p=>p.app).map(([k,n])=>navBtn('app',k,I.src,k,n)),8);
@@ -562,7 +575,8 @@ function render(){
   renderNav();renderNotices();
   const v=state.view;
   $('renalbum').hidden=$('delalbum').hidden=v!=='album';
-  $('saveevent').hidden=v!=='event';
+  $('saveevent').hidden=v!=='event'&&v!=='person';
+  $('renperson').hidden=$('forgetperson').hidden=v!=='person';
   $('fixgroup').hidden=v!=='tag';
   $('sortbtn').hidden=v==='dups'||v==='events';
   if(v==='dups')return renderDups();
@@ -575,6 +589,7 @@ function render(){
   if(v==='app')sub='Source · ';
   if(v==='tag'){sub='Recognized · ';title=tagName(state.key)}
   if(v==='myplace')sub='My place · ';
+  if(v==='person')sub='Person · recognized by face · ';
   if(state.q&&v==='all')title='Results';
   const smart=state.q&&sem.q===state.q&&sem.scores.size;
   $('title').textContent=title;
@@ -713,7 +728,7 @@ function syncSel(){
   const tr=state.view==='trash';
   $('a-fav').textContent=tr?'Restore':'♡ Favorite';$('a-del').textContent=tr?'Delete permanently':'Delete';
   $('a-tag').hidden=$('a-date').hidden=$('a-album').hidden=tr;
-  $('a-untag').hidden=state.view!=='tag';
+  $('a-untag').hidden=state.view!=='tag'&&state.view!=='person';
   $('a-album').innerHTML='<option value="">To album…</option>'+data.albums.map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')+'<option value="new">+ New album…</option>'+(state.view==='album'?'<option value="remove">Remove from this album</option>':'');
 }
 function clearSel(){state.sel.clear();state.selecting=false;syncSel()}
@@ -732,7 +747,9 @@ $('a-album').onchange=async e=>{const v=e.target.value;e.target.value='';if(!v)r
   else if(v==='new'){const name=await promptBox('New album','Album name');if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await api(`/api/albums/${r.id}/add`,{ids});toast(`Album “${name}” created`)}
   else{await api(`/api/albums/${v}/add`,{ids});toast(`Added to “${data.albums.find(a=>a.id==v).name}”`)}
   clearSel();await load()};
-$('a-untag').onclick=()=>fixGroup(true);
+$('a-untag').onclick=async()=>{
+  if(state.view!=='person')return fixGroup(true);
+  const r=await api('/api/people/not',{person:state.key,ids:[...state.sel]});toast(`Removed from “${state.key}”. It won’t come back on these photos.`);clearSel();await load()};
 $('fixgroup').onclick=()=>fixGroup(false);
 async function fixGroup(onlySel){
   const tag=state.key,inGroup=data.photos.filter(p=>!p.trash&&(p.tags||[]).includes(tag)),sel=[...state.sel].filter(id=>inGroup.some(p=>p.id===id));
@@ -824,6 +841,7 @@ function showLb(){
       <dt>Size</dt><dd class="num">${fmtSize(p.size)}</dd>
       <dt>Folder</dt><dd>${esc(p.path.split('/').slice(0,-1).join(' › '))}</dd>
     </dl>
+    <div id="lb-people-wrap" hidden><div class="eyebrow">People</div><div class="faces" id="lb-people"></div></div>
     <div><div class="eyebrow">Tags</div><div class="tags" id="lb-tags">${(p.tags||[]).map(t=>`<span class="tag ${(p.tagby||{})[t]==='user'?'':'ai'}" title="${esc({ai:'Recognized locally',cloud:'Recognized by Claude',vlm:'Recognized by Qwen3-VL',learned:'Learned from your tags',user:'Your tag'}[(p.tagby||{})[t]]||'')}">${esc(tagName(t))}<button data-rm="${esc(t)}" title="Remove the tag">×</button></span>`).join('')}<input class="tagin" id="lb-tagin" placeholder="+ tag" list="taglist"><datalist id="taglist">${allTags().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div></div>
     <div><div class="eyebrow">Albums</div><div class="tags">${albums.map(a=>`<span class="tag">${esc(a.name)}<button data-ral="${a.id}" title="Remove from the album">×</button></span>`).join('')}<select id="lb-album" class="tagin" style="width:auto"><option value="">+ to album</option>${data.albums.filter(a=>!p.albums.includes(a.id)).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}<option value="new">+ New album…</option></select></div></div>
     ${p.kind!=='video'?'<div><div class="eyebrow">Histogram</div><canvas class="hist" id="lb-hist" width="300" height="56"></canvas></div>':''}
@@ -849,6 +867,7 @@ function showLb(){
     const al=data.albums.find(x=>x.id===a);if(al)toast(`Added to “${al.name}”`)};
   if(p.kind!=='video')drawHist(p);
   loadHistory(p);
+  loadFaces(p);
   if((status.ai||{}).state==='ready'&&p.ai_done===1)api(`/api/similar/${p.id}`).then(ids=>{if(!state.lb||state.lb.list[state.lb.idx]!==p||!ids.length)return;$('lb-simwrap').hidden=false;$('lb-sim').innerHTML=ids.slice(0,8).map(id=>`<img src="/thumb/${id}.jpg" data-sim="${id}" alt="" loading="lazy">`).join('');$('lb-sim').querySelectorAll('img').forEach(im=>im.onclick=()=>{const q=byId.get(+im.dataset.sim);if(!q)return;const i=state.lb.list.indexOf(q);if(i>=0)state.lb.idx=i;else{state.lb.list=[q];state.lb.idx=0}showLb()})}).catch(()=>{});
 }
 function drawHist(p){
@@ -862,6 +881,20 @@ function drawHist(p){
   };im.src=`/thumb/${p.id}.jpg?r=${p.rot||0}`;
 }
 const HOW={copy:'Copied',move:'Moved',upload:'Imported with “Add photos”'};
+async function loadFaces(p){
+  const faces=await api(`/api/faces/${p.id}`).catch(()=>[]);
+  const wrap=$('lb-people-wrap'),el=$('lb-people');
+  if(!wrap||!state.lb||state.lb.list[state.lb.idx]!==p)return;
+  wrap.hidden=!faces.length;if(!faces.length)return;
+  const known=counts(data.photos,x=>x.people).map(x=>x[0]);
+  el.innerHTML=faces.map(f=>`<div class="face ${f.person?'named':''}"><img src="/facecrop/${f.id}.jpg" alt="">${f.person
+    ?`<span class="nm">${esc(f.person)}<button data-unf="${f.id}" title="Not ${esc(f.person)}">×</button></span>${f.by==='auto'?'<span class="auto">recognized</span>':''}`
+    :`<input data-nf="${f.id}" placeholder="Who is this?" list="pp-list">`}</div>`).join('')+`<datalist id="pp-list">${known.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>`;
+  const after=async()=>{dirty=true;const lib=await api('/api/library');const q=lib.photos.find(x=>x.id===p.id);if(q){p.people=q.people;p._s=null}for(const x of lib.photos){const y=byId.get(x.id);if(y){y.people=x.people;y._s=null}}loadFaces(p)};
+  el.querySelectorAll('[data-nf]').forEach(inp=>inp.onkeydown=async e=>{e.stopPropagation();if(e.key!=='Enter')return;const name=inp.value.trim();if(!name)return;
+    const r=await api(`/api/face/${inp.dataset.nf}/name`,{name});toast(`“${name}” found in ${plural(r.photos,'photo','photos')}. Look under People.`);after()});
+  el.querySelectorAll('[data-unf]').forEach(b=>b.onclick=async()=>{await api(`/api/face/${b.dataset.unf}/name`,{name:''});toast('Name removed. It won’t be guessed again for this face.');after()});
+}
 async function loadHistory(p){
   let h;try{h=await api(`/api/history/${p.id}`)}catch(_){return}
   if(!state.lb||state.lb.list[state.lb.idx]!==p)return;
@@ -908,7 +941,13 @@ function dateBox(d){return new Promise(res=>{
 async function newAlbum(){const name=await promptBox('New album','Album name, e.g. Ohrid 2024');if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await load();go('album',r.id);toast(`Album “${name}” created. Select photos and add them to it.`)}
 $('renalbum').onclick=async()=>{const a=data.albums.find(x=>x.id===state.key);if(!a)return;const name=await promptBox('Rename album','Name',[],a.name);if(!name)return;await api(`/api/albums/${a.id}/rename`,{name});await load();toast('Album renamed')};
 $('delalbum').onclick=async()=>{const a=data.albums.find(x=>x.id===state.key);if(!a)return;if(!await confirmBox(`Delete the album “${a.name}”? The photos stay in the library.`,'Delete'))return;await api(`/api/albums/${a.id}/delete`,{});go('all');await load();toast('Album deleted')};
-$('saveevent').onclick=async()=>{const e=events.find(x=>x.id===state.key);if(!e)return;const name=await promptBox('Save event as album','Name',[],`${e.title} ${e.first.getFullYear()}`);if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await api(`/api/albums/${r.id}/add`,{ids:e.ids});await load();go('album',r.id);toast('Album created')};
+$('renperson').onclick=async()=>{const old=state.key;const name=await promptBox('Rename person','Name',[],old);if(!name||name===old)return;await api('/api/people/rename',{old,new:name});await load();go('person',name);toast('Renamed')};
+$('forgetperson').onclick=async()=>{const old=state.key;if(!await confirmBox(`Forget “${old}”? The name is removed from all photos. The photos stay.`,'Forget'))return;await api('/api/people/rename',{old,new:''});go('all');await load();toast('Person forgotten')};
+$('saveevent').onclick=async()=>{
+  if(state.view==='person'){const ids=visible().map(p=>p.id);const name=await promptBox('Save as album','Album name',[],state.key);if(!name)return;
+    let a=data.albums.find(x=>x.name===name);if(!a){const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});a={id:r.id}}
+    await api(`/api/albums/${a.id}/add`,{ids});await load();toast(`${plural(ids.length,'photo','photos')} put in the album “${name}”`);return}
+  const e=events.find(x=>x.id===state.key);if(!e)return;const name=await promptBox('Save event as album','Name',[],`${e.title} ${e.first.getFullYear()}`);if(!name)return;const r=await api('/api/albums',{name,color:PAL[data.albums.length%PAL.length]});await api(`/api/albums/${r.id}/add`,{ids:e.ids});await load();go('album',r.id);toast('Album created')};
 
 // ---------- folder picking
 async function pickFolder(title){
@@ -938,6 +977,8 @@ function whatsNew(){
   const c=modal(`<h3>Fotoarhiva is updated to ${esc(cfg.version)}</h3>
     <p class="muted" style="margin:0">Your photos, albums, tags and settings are unchanged. What’s new:</p>
     <ul style="margin:0;padding-left:20px;line-height:1.6;font-size:14px">
+      <li><b>People:</b> open a photo and name a face (e.g. “Bozica”). Fotoarhiva finds the same person in all your photos and shows them under <b>People</b>. You can save them as an album. Everything stays on this computer.</li>
+      <li><b>Albums:</b> “+ New album…” right in a photo’s details.</li>
       <li><b>Videos:</b> every format plays (MKV, AVI, MTS, iPhone HEVC… are converted automatically the first time), duration on each video, the place from the phone’s GPS, and videos are recognized and described like photos.</li>
       <li><b>Duplicates:</b> finds the same photo in different files (resized, sent through WhatsApp or Viber, saved twice). Select the extra copies and move them to Trash.</li>
       <li><b>Skipped files:</b> files outside the library that are already in Fotoarhiva can be selected and deleted to free space${cfg.windows?' (they go to the Recycle Bin)':''}.</li>
@@ -1035,6 +1076,8 @@ async function settings(){
         <input id="lg-new2" type="password" placeholder="Repeat the new password" autocomplete="new-password">
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm primary" id="lg-save">Change username and password</button><button class="btn sm" id="lg-out">Sign out</button></div></div>
+    <div class="setsec"><h4>People</h4>
+      <label class="choice"><input type="checkbox" id="st-faces" ${cfg.faces!==false?'checked':''}><span><b>Recognize people by their faces</b><small>Fotoarhiva finds faces in your photos. Name a face once (e.g. “Bozica”) and every photo of that person is found and shown under People. Everything stays on this computer.${status.faces_pending?` · ${status.faces_pending} photos still to check`:''}</small></span></label></div>
     <div class="setsec"><h4>When the window is closed</h4>
       <label class="choice"><input type="checkbox" id="st-keep" ${cfg.keep_running?'checked':''}><span><b>Keep working in the background</b><small>Fotoarhiva keeps watching your folders and recognizing photos after you close the window. When this is off, Fotoarhiva quits completely when you close the window, and Python no longer runs.${cfg.background?' <b>Right now it was started with Windows, so it runs in the background anyway.</b>':''}</small></span></label></div>
     <div class="setsec"><h4>About</h4><p class="muted" style="margin:0">Version ${esc(cfg.version)} · HEIC ${cfg.heif?'yes':'no'} · video thumbnails ${cfg.ffmpeg?'yes':'no'}</p>
@@ -1075,6 +1118,7 @@ async function settings(){
   const ln=c.querySelector('#st-lnk');if(ln)ln.onclick=async()=>{const r=await api('/api/system/shortcut',{});toast(r.result==='ok'?'The “Fotoarhiva” icon is on the Desktop':r.result)};
   const au=c.querySelector('#st-auto');if(au)au.onchange=async e=>{const r=await api('/api/system/autostart',{on:e.target.checked});toast(r.autostart?'Will start with Windows':'Won’t start with Windows')};
   const un=c.querySelector('#st-uninst');if(un)un.onclick=async()=>{if(!await confirmBox('Uninstall Fotoarhiva? Your photos and the library will not be deleted.','Uninstall'))return;await api('/api/system/uninstall',{}).catch(()=>{});document.body.innerHTML='<div style="display:grid;place-items:center;height:100%;font-size:18px;text-align:center;padding:20px">Opening the Fotoarhiva uninstaller.<br>You can close this window.</div>'};
+  c.querySelector('#st-faces').onchange=async e=>{await save({faces:e.target.checked});toast(e.target.checked?'People recognition is on':'People recognition is off')};
   c.querySelector('#st-keep').onchange=async e=>{await save({keep_running:e.target.checked});toast(e.target.checked?'Fotoarhiva keeps working after the window is closed':'Fotoarhiva quits when the window is closed')};
   c.querySelector('#lg-save').onclick=async()=>{
     const v=id=>c.querySelector(id).value;

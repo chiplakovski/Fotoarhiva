@@ -1,6 +1,6 @@
-# Fotoarhiva 2.7.2
+# Fotoarhiva 2.8
 
-**Download the installer:** [Fotoarhiva-Setup-2.7.2.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.7.2.exe)
+**Download the installer:** [Fotoarhiva-Setup-2.8.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.8.0.exe)
 
 Fotoarhiva is a Windows app that gathers all the photos on your computer in one place,
 organizes them by year and month and recognizes what is in them.
@@ -8,7 +8,7 @@ It opens in Chrome as its own window. Everything runs on your computer.
 
 ## Installation
 
-1. Download `Fotoarhiva-Setup-2.7.2.exe` and run it.
+1. Download `Fotoarhiva-Setup-2.8.0.exe` and run it.
    If Windows shows "Windows protected your PC": **More info → Run anyway** (see below).
 2. Keep **"Recognition models"** ticked in the setup. They are downloaded during installation
    (~3.5 GB, a few minutes) so the app is complete.
@@ -106,6 +106,24 @@ If only some photos are wrong, select them and click **"Not this"**.
 - **Tag by hand:** tag one photo (e.g. "Stainless steel machines") and the app also tags many similar photos.
   The more examples, the better. Remove a wrong tag with ×, it won't come back.
 - **My categories:** in Settings add a name and a short description. Photos are re-evaluated right away.
+
+## People
+
+Fotoarhiva finds the faces in your photos in the background, a few photos per second.
+
+1. Open a photo. Under **People** you see the faces in it (the largest first).
+2. Type a name under a face, e.g. **Bozica**, and press Enter.
+3. Fotoarhiva compares that face with every face in your library and puts all photos of the same person under
+   **People → Bozica** in the left menu. New photos are recognized automatically too.
+4. A face recognized automatically says *recognized*. If it is wrong, click **×**: the name is removed and never
+   guessed again for that face. In the person's view you can also select photos and click **Not this**.
+5. Name the same person in a few more photos (different ages, light, glasses) and even more photos are found.
+6. In the person's view: **Save as album**, **Rename** or **Forget this person**. You can also search by the name.
+
+Face recognition runs only on your computer with two small open models from the OpenCV model zoo
+(YuNet for finding faces, SFace for recognizing them, ~39 MB). It can be turned off in **Settings → People**.
+For things that are not faces (a car, a house, a dog), use **+ tag** in the photo's details: similar photos get the tag
+automatically.
 
 ## Videos
 
