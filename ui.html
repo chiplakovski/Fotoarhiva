@@ -146,6 +146,27 @@ input[type=text],input[type=search],input[type=datetime-local],input[type=number
 .card .cap b{display:block;font-size:14px}
 .card .cap small{color:var(--fg-3)}
 .duplist{display:flex;flex-direction:column;gap:6px}
+.dupbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0 12px}
+.dupbar .grow{flex:1}
+.dupsec{margin-bottom:34px}
+.dupsec>h3{margin:0 0 4px;font-size:17px}
+.dupsec>p{margin:0 0 6px;color:var(--fg-2);font-size:13.5px}
+.dgroup{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.dgroup .gh{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:var(--fg-2)}
+.dgroup .gl{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.dcopy{position:relative;border:2px solid transparent;border-radius:10px;padding:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.dcopy img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;display:block;background:var(--surface-2)}
+.dcopy small{display:block;font-size:11.5px;color:var(--fg-2);padding:5px 2px 0;overflow-wrap:anywhere;line-height:1.35}
+.dcopy.on{border-color:var(--danger)}
+.dcopy.on img{opacity:.55}
+.dcopy .kb{position:absolute;top:6px;left:6px;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--good);color:#fff}
+.dcopy .cb{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;border:2px solid #fff;background:rgba(0,0,0,.3);display:grid;place-items:center;color:#fff;font-size:13px;font-weight:700}
+.dcopy.on .cb{background:var(--danger);border-color:var(--danger)}
+.dup.sk{grid-template-columns:22px 56px 1fr auto;cursor:pointer}
+.dup.sk input{width:18px;height:18px;margin:0}
+.dup.sk.off{opacity:.55;cursor:default}
+.vwait{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.vwait div{background:rgba(0,0,0,.72);color:#fff;padding:12px 18px;border-radius:10px;font-size:14px;display:flex;gap:10px;align-items:center;max-width:420px;text-align:center}
 .dup{display:grid;grid-template-columns:56px 1fr;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .dup img{width:56px;height:56px;object-fit:cover;border-radius:6px;background:var(--surface-2)}
 .dup .p{font-size:12px;color:var(--fg-2);overflow-wrap:anywhere}
@@ -340,6 +361,7 @@ const colorOf=s=>{let h=0;for(const c of String(s))h=(h*31+c.charCodeAt(0))>>>0;
 const fmtSize=b=>!b?'0 KB':b>=1e9?(b/1e9).toFixed(1)+' GB':b>=1e6?(b/1e6).toFixed(1)+' MB':Math.max(1,Math.round(b/1e3))+' KB';
 const fmtDate=d=>`${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}, ${d.getFullYear()}, ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 const fmtDay=d=>`${MONTHS[d.getMonth()].slice(0,3)} ${d.getDate()}, ${d.getFullYear()}`;
+const fmtDur=s=>{if(!(s>0))return'';s=Math.round(s);const h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=String(s%60).padStart(2,'0');return h?`${h}:${String(m).padStart(2,'0')}:${x}`:`${m}:${x}`};
 const plural=(n,one,many)=>`${n} ${n===1?one:many}`;
 const store={get(k,d){try{const v=localStorage.getItem('fa.'+k);return v==null?d:JSON.parse(v)}catch(_){return d}},set(k,v){try{localStorage.setItem('fa.'+k,JSON.stringify(v))}catch(_){}}};
 let tt;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('on'),2800)}
@@ -616,7 +638,7 @@ function tile(p,list){
     <button class="ck" aria-label="Select" data-ck><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg></button>
     <button class="fav" aria-label="Favorite" data-fav><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z"/></svg></button>
     <div class="meta"><span>${esc(p.myplace||p.place||tagName((p.tags||[])[0]||'')||p.name)}</span><span class="num">${p.d.getDate()}.${p.d.getMonth()+1}.</span></div>
-    ${p.kind==='video'?'<span class="badge">▶ VIDEO</span>':p.kind==='screenshot'?'<span class="badge">SCREENSHOT</span>':''}`;
+    ${p.kind==='video'?`<span class="badge">▶ ${p.dur>0?fmtDur(p.dur):'VIDEO'}</span>`:p.kind==='screenshot'?'<span class="badge">SCREENSHOT</span>':''}`;
   el.onclick=async e=>{
     if(e.target.closest('[data-fav]')){e.stopPropagation();p.fav=p.fav?0:1;el.classList.toggle('isfav',!!p.fav);await api(`/api/photo/${p.id}`,{fav:!!p.fav});state.version++;renderNav();return}
     if(e.target.closest('[data-ck]')||state.selecting||e.shiftKey||e.ctrlKey||e.metaKey){toggleSel(p.id,e.shiftKey,list);return}
@@ -633,11 +655,48 @@ function renderEvents(){
   wrap.innerHTML=`<div class="cards">${events.map(e=>`<button class="card" data-e="${e.id}"><div class="cov">${e.ids.slice(0,3).map(id=>`<img src="/thumb/${id}.jpg" loading="lazy" alt="">`).join('')}</div><div class="cap"><b>${esc(e.title)}</b><small class="num">${esc(e.range)} · ${plural(e.count,'photo','photos')}</small></div></button>`).join('')}</div>`;
   wrap.querySelectorAll('[data-e]').forEach(b=>b.onclick=()=>go('event',+b.dataset.e));
 }
+const dupSel=new Set(),skipSel=new Set();
 async function renderDups(){
   $('title').textContent='Duplicates';$('chips').innerHTML='';
-  const rows=await api('/api/duplicates');
-  $('subtitle').textContent=`${plural(rows.length,'file was skipped','files were skipped')} because the same photo is already in the library. The originals were not touched.`;
-  $('groups').innerHTML=rows.length?`<div class="duplist">${rows.map(r=>`<div class="dup"><img src="/thumb/${r.of_id}.jpg" alt="" onerror="this.style.visibility='hidden'"><div class="p"><b>${esc(r.src)}</b><br>same as: ${esc(r.of_path||'(deleted)')}</div></div>`).join('')}</div>`:'<div class="empty"><h3>No duplicates</h3><p>Every file in the library is unique.</p></div>';
+  const wrap=$('groups');
+  if(!wrap.querySelector('.dupsec'))wrap.innerHTML='<div class="empty"><span class="spin"></span><p>Looking for duplicates…</p></div>';
+  const d=await api('/api/duplicates');
+  if(state.view!=='dups')return;
+  const groups=d.similar.filter(g=>g.ids.every(id=>byId.has(id)));
+  const extra=groups.reduce((n,g)=>n+g.ids.length-1,0);
+  const skipped=d.skipped,okSkip=skipped.filter(r=>r.safe);
+  for(const id of [...dupSel])if(!groups.some(g=>g.ids.includes(id)))dupSel.delete(id);
+  for(const p of [...skipSel])if(!okSkip.some(r=>r.src===p))skipSel.delete(p);
+  $('subtitle').textContent=groups.length||skipped.length?`${plural(extra,'extra copy','extra copies')} in the library · ${plural(skipped.length,'skipped file','skipped files')} outside it`:'No duplicates found';
+  const info=p=>`${p.w?`${p.w}×${p.h} · `:''}${fmtSize(p.size)}<br>${esc(p.name)}`;
+  const skipSize=[...skipSel].reduce((n,src)=>n+((skipped.find(r=>r.src===src)||{}).size||0),0);
+  wrap.innerHTML=`
+  <section class="dupsec"><h3>The same photo in more than one file</h3>
+    <p>Copies inside your library: resized, sent through WhatsApp or Viber, saved twice… The best copy (largest) is marked <b>Best</b>. Click the copies you don’t need, then move them to Trash.</p>
+    ${groups.length?`<div class="dupbar"><button class="btn sm" id="dp-all">Select all extra copies (${extra})</button><button class="btn sm" id="dp-none" ${dupSel.size?'':'disabled'}>Clear selection</button><span class="grow"></span><button class="btn sm danger" id="dp-del" ${dupSel.size?'':'disabled'}>Move ${dupSel.size||''} selected to Trash</button></div>
+    ${groups.map((g,gi)=>`<div class="dgroup"><div class="gh"><span>${plural(g.ids.length,'copy','copies')}</span><button class="btn sm" data-ign="${gi}">Not duplicates</button></div><div class="gl">${g.ids.map(id=>{const p=byId.get(id);return `<button class="dcopy ${dupSel.has(id)?'on':''}" data-dc="${id}" title="${esc(p.path)}"><img src="/thumb/${id}.jpg?r=${p.rot||0}" loading="lazy" alt="">${id===g.keep?'<span class="kb">Best</span>':''}<span class="cb">${dupSel.has(id)?'✓':''}</span><small class="num">${info(p)}</small></button>`}).join('')}</div></div>`).join('')}`:'<div class="muted" style="font-size:13.5px">No copies of the same photo in the library.</div>'}
+  </section>
+  <section class="dupsec"><h3>Skipped files outside the library</h3>
+    <p>These files were not added because exactly the same file is already in Fotoarhiva. You can delete them from their original folders to free space${d.windows?'. They go to the Recycle Bin, so you can restore them':''}. The copy in Fotoarhiva stays.</p>
+    ${skipped.length?`<div class="dupbar"><button class="btn sm" id="sk-all">Select all (${okSkip.length})</button><button class="btn sm" id="sk-none" ${skipSel.size?'':'disabled'}>Clear selection</button><span class="grow"></span><button class="btn sm danger" id="sk-del" ${skipSel.size?'':'disabled'}>Delete ${skipSel.size?plural(skipSel.size,'file','files')+' · '+fmtSize(skipSize):'selected files'}</button></div>
+    <div class="duplist">${skipped.map(r=>`<label class="dup sk ${r.safe?'':'off'}"><input type="checkbox" data-sk="${esc(r.src)}" ${skipSel.has(r.src)?'checked':''} ${r.safe?'':'disabled'}><img src="/thumb/${r.of_id}.jpg" alt="" onerror="this.style.visibility='hidden'"><div class="p"><b>${esc(r.src)}</b><br>${r.safe?'in Fotoarhiva: '+esc(r.of_path):'<span style="color:var(--danger)">The Fotoarhiva copy is deleted or in Trash, so this file is kept.</span>'}</div><span class="num muted" style="font-size:12px">${fmtSize(r.size)}</span></label>`).join('')}</div>`:'<div class="muted" style="font-size:13.5px">No skipped files.</div>'}
+  </section>`;
+  const q=sel=>wrap.querySelector(sel);
+  wrap.querySelectorAll('[data-dc]').forEach(b=>b.onclick=()=>{const id=+b.dataset.dc;dupSel.has(id)?dupSel.delete(id):dupSel.add(id);
+    const g=groups.find(g=>g.ids.includes(id));if(g&&g.ids.every(x=>dupSel.has(x))){dupSel.delete(g.keep);toast('At least one copy always stays')}renderDups()});
+  wrap.querySelectorAll('[data-ign]').forEach(b=>b.onclick=async()=>{const g=groups[+b.dataset.ign];g.ids.forEach(x=>dupSel.delete(x));await api('/api/duplicates/ignore',{ids:g.ids});toast('These photos won’t be shown as duplicates again');renderDups()});
+  wrap.querySelectorAll('[data-sk]').forEach(c=>c.onchange=()=>{c.checked?skipSel.add(c.dataset.sk):skipSel.delete(c.dataset.sk);renderDups()});
+  if(q('#dp-all'))q('#dp-all').onclick=()=>{groups.forEach(g=>g.ids.forEach(id=>{if(id!==g.keep)dupSel.add(id)}));renderDups()};
+  if(q('#dp-none'))q('#dp-none').onclick=()=>{dupSel.clear();renderDups()};
+  if(q('#dp-del'))q('#dp-del').onclick=async()=>{
+    if(!await confirmBox(`Move ${plural(dupSel.size,'copy','copies')} to Trash? The best copy of each photo stays. You can restore them from Trash.`,'Move to Trash'))return;
+    await api('/api/photos/update',{ids:[...dupSel],trash:true});toast(`${plural(dupSel.size,'copy','copies')} moved to Trash`);dupSel.clear();await load();renderDups()};
+  if(q('#sk-all'))q('#sk-all').onclick=()=>{okSkip.forEach(r=>skipSel.add(r.src));renderDups()};
+  if(q('#sk-none'))q('#sk-none').onclick=()=>{skipSel.clear();renderDups()};
+  if(q('#sk-del'))q('#sk-del').onclick=async()=>{
+    if(!await confirmBox(`Delete ${plural(skipSel.size,'file','files')} (${fmtSize(skipSize)}) from their original folders? The same photos stay in Fotoarhiva.${d.windows?' The files go to the Recycle Bin.':''}`,'Delete'))return;
+    const r=await api('/api/duplicates/remove-skipped',{paths:[...skipSel]});skipSel.clear();
+    toast(`${plural(r.removed,'file deleted','files deleted')}${r.failed.length?`, ${r.failed.length} could not be deleted`:''}`);await load();renderDups()};
 }
 
 // ===================================================================== selection
@@ -707,13 +766,37 @@ let TAG_EN={},TAG_MK={};
 const tagName=t=>t;
 const allTags=()=>counts(data.photos,p=>p.tags).map(x=>x[0]);
 
+// ===================================================================== videos
+function playVideo(p,stage){
+  const v=document.createElement('video');v.controls=true;v.autoplay=true;v.playsInline=true;v.style.cursor='default';v.poster=`/thumb/${p.id}.jpg`;
+  const cur=()=>state.lb&&state.lb.list[state.lb.idx]===p;
+  const msg=(html,spin)=>{let w=stage.querySelector('.vwait');if(!w){w=document.createElement('div');w.className='vwait';stage.appendChild(w)}w.innerHTML=`<div>${spin?'<span class="spin"></span>':''}<span>${html}</span></div>`};
+  const clear=()=>{const w=stage.querySelector('.vwait');if(w)w.remove()};
+  let converting=false;
+  const convert=async()=>{
+    if(converting||!cur())return;converting=true;v.onerror=null;v.removeAttribute('src');v.load();
+    let s=await api(`/api/video/${p.id}/prepare`,{}).catch(e=>({state:'error',error:e.message}));
+    while(cur()&&s.state==='working'){msg(`Preparing the video for playback… ${Math.round((s.progress||0)*100)}%<br><small style="opacity:.75">Only the first time. The original is not changed.</small>`,true);await new Promise(r=>setTimeout(r,900));s=await api(`/api/video/${p.id}`).catch(()=>s)}
+    if(!cur())return;
+    if(s.state==='ready'){clear();v.src=s.src;v.play().catch(()=>{})}
+    else msg(esc(s.error||'This video can’t be played here. Use “Open” to play it in another program.'));
+  };
+  api(`/api/video/${p.id}`).then(s=>{
+    if(!cur())return;
+    if(s.state==='ready')v.src=s.src;
+    else if(s.state==='direct'){v.onerror=convert;v.onloadedmetadata=()=>{if(!v.videoWidth)convert()};v.src=`/file/${p.id}`}
+    else convert();
+  }).catch(()=>{v.src=`/file/${p.id}`});
+  return v;
+}
+
 // ===================================================================== lightbox
 function openLb(p,list){state.lb={list,idx:list.indexOf(p)};$('lb').hidden=false;showLb();$('lb-x').focus()}
 function showLb(){
   const {list,idx}=state.lb,p=list[idx],stage=$('stage');
-  stage.querySelectorAll('img,video').forEach(n=>n.remove());
+  stage.querySelectorAll('img,video,.vwait').forEach(n=>n.remove());
   let node;
-  if(p.kind==='video'){node=document.createElement('video');node.src=`/file/${p.id}`;node.controls=true;node.autoplay=true;node.style.cursor='default'}
+  if(p.kind==='video')node=playVideo(p,stage);
   else{node=new Image();node.src=`/file/${p.id}`;node.alt=p.name;node.onerror=()=>{node.src=`/thumb/${p.id}.jpg`}}
   const r=p.rot||0;if(r){node.style.transform=`rotate(${r}deg)`;if(r%180){node.style.maxWidth='calc(100vh - 112px)';node.style.maxHeight='calc(100vw - 500px)'}}
   if(p.kind!=='video')node.onclick=e=>{const z=node.classList.toggle('zoom');const b=node.getBoundingClientRect();node.style.transformOrigin=`${(e.clientX-b.left)/b.width*100}% ${(e.clientY-b.top)/b.height*100}%`;node.style.transform=`${r?`rotate(${r}deg) `:''}${z?'scale(2.2)':''}`};
@@ -735,7 +818,9 @@ function showLb(){
       <dt>Place</dt><dd>${p.myplace?'<b>'+esc(p.myplace)+'</b>'+(p.place?' · ':''):''}${p.place?esc(p.place)+(p.country?', '+esc(p.country):''):(!p.myplace&&p.lat!=null?'GPS without a known place':(!p.myplace?'—':''))}${p.lat!=null?'<button id="lb-setplace">set as Home, Work…</button>':''}</dd>
       <dt>Source</dt><dd>${esc(p.app||'—')}</dd>
       <dt>Camera</dt><dd>${esc(p.cam||'—')}</dd>
+      ${p.kind==='video'&&p.dur>0?`<dt>Duration</dt><dd class="num">${fmtDur(p.dur)}</dd>`:''}
       <dt>Dimensions</dt><dd class="num">${p.w?((p.rot||0)%180?`${p.h} × ${p.w}`:`${p.w} × ${p.h}`):'—'}</dd>
+      ${p.kind==='video'&&p.codec&&p.codec.split('/')[0]?`<dt>Format</dt><dd>${esc(p.codec.split('/')[0].toUpperCase())}${p.codec.split('/')[1]?' · '+esc(p.codec.split('/')[1].toUpperCase()):''}</dd>`:''}
       <dt>Size</dt><dd class="num">${fmtSize(p.size)}</dd>
       <dt>Folder</dt><dd>${esc(p.path.split('/').slice(0,-1).join(' › '))}</dd>
     </dl>
@@ -840,6 +925,22 @@ async function addWatchFolder(){
   const srcs=[...new Set([...(cfg.sources||[]),p])];cfg=await api('/api/config',{sources:srcs,configured:true});
   if(!cfg.sources.includes(p)){toast('That folder can’t be added (it doesn’t exist or is inside the library)');return}
   await api('/api/scan',{});toast('Folder added. Its photos are being organized.');refreshStatus();
+}
+
+// ===================================================================== after an update
+function whatsNew(){
+  const c=modal(`<h3>Fotoarhiva is updated to ${esc(cfg.version)}</h3>
+    <p class="muted" style="margin:0">Your photos, albums, tags and settings are unchanged. What’s new:</p>
+    <ul style="margin:0;padding-left:20px;line-height:1.6;font-size:14px">
+      <li><b>Videos:</b> every format plays (MKV, AVI, MTS, iPhone HEVC… are converted automatically the first time), duration on each video, the place from the phone’s GPS, and videos are recognized and described like photos.</li>
+      <li><b>Duplicates:</b> finds the same photo in different files (resized, sent through WhatsApp or Viber, saved twice). Select the extra copies and move them to Trash.</li>
+      <li><b>Skipped files:</b> files outside the library that are already in Fotoarhiva can be selected and deleted to free space${cfg.windows?' (they go to the Recycle Bin)':''}.</li>
+    </ul>
+    <p class="muted" style="margin:0;font-size:12.5px">Existing videos are being updated in the background.</p>
+    <div class="foot"><button class="btn" id="wn-dups">Show duplicates</button><button class="btn primary" id="wn-ok">OK</button></div>`);
+  const done=()=>{closeModal();api('/api/config',{seen_version:cfg.version}).then(x=>cfg=x).catch(()=>{})};
+  c.querySelector('#wn-ok').onclick=done;
+  c.querySelector('#wn-dups').onclick=()=>{done();go('dups')};
 }
 
 // ===================================================================== onboarding
@@ -953,7 +1054,7 @@ async function settings(){
     const k=c.querySelector('#cl-key').value.trim();await save({cloud_enabled:e.target.checked,...(k?{cloud_key:k}:{})});await refreshStatus();settings()};
   c.querySelector('#cl-savekey').onclick=async()=>{const k=c.querySelector('#cl-key').value.trim();if(!k.startsWith('sk-ant')){toast('The key must start with sk-ant');return}await save({cloud_key:k});toast('Key saved');await refreshStatus();settings()};
   c.querySelectorAll('[name=cl-model]').forEach(r=>r.onchange=()=>save({cloud_model:r.value}));
-  c.querySelector('#cl-all').onclick=async()=>{const n=data.photos.filter(p=>!p.trash&&p.kind!=='video'&&p.cloud_done!==1).length;const m=(cfg.cloud_models||[]).find(x=>x.id===cfg.cloud_model)||{usd_per_1000:10};
+  c.querySelector('#cl-all').onclick=async()=>{const n=data.photos.filter(p=>!p.trash&&p.cloud_done!==1).length;const m=(cfg.cloud_models||[]).find(x=>x.id===cfg.cloud_model)||{usd_per_1000:10};
     if(!await confirmBox(`Describe ${n} photos with Claude? Estimated cost: about $${(n*m.usd_per_1000/1000).toFixed(2)}.`,'Start'))return;await save({cloud_scope:'all',cloud_running:true,cloud_enabled:true});await refreshStatus();closeModal()};
   c.querySelector('#cl-new').onclick=async()=>{await save({cloud_scope:'new',cloud_running:true,cloud_enabled:true});toast('Claude will describe only new photos');await refreshStatus();settings()};
   const clp=c.querySelector('#cl-pause');if(clp)clp.onclick=async()=>{await save({cloud_running:false});settings()};
@@ -1092,6 +1193,7 @@ async function poll(){
 
   await load();
   if(!cfg.configured)onboarding();
+  else if(cfg.whats_new)whatsNew();
   poll();
 })();
 </script>

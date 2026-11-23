@@ -7,8 +7,8 @@ Commands for advanced users:
   python fotoarhiva.py organize             # a single scan, no interface
   python fotoarhiva.py shortcut             # create a Desktop shortcut (Windows)
 """
-import hashlib, hmac, json, secrets, math, os, re, shutil, sqlite3, struct, sys, threading, time, uuid, webbrowser, mimetypes, subprocess, platform
-from datetime import datetime
+import hashlib, hmac, io, json, secrets, math, os, re, shutil, sqlite3, struct, sys, threading, time, uuid, webbrowser, mimetypes, subprocess, platform
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, unquote, parse_qs
@@ -57,7 +57,7 @@ from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.6"
+VERSION = "2.7"
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff", ".heic", ".heif", ".dng", ".cr2", ".nef", ".arw"}
@@ -141,6 +141,126 @@ def date_from_name(name):
         except Exception:
             pass
     return None
+
+
+BROWSER_VIDEO = {".mp4", ".m4v", ".mov", ".webm"}
+DIRECT_VCODECS = {"h264", "vp8", "vp9", "av1", "hevc"}   # hevc: Chrome plays it on most Windows PCs; if not, it is converted
+DIRECT_ACODECS = {"", "aac", "mp3", "opus", "vorbis"}
+
+
+def _local_from_utc(text):
+    try:
+        d = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return d.astimezone().replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def video_info(p: Path):
+    """Duration, size, codecs, rotation, GPS and capture date of a video, read with ffmpeg."""
+    info = {}
+    if not FFMPEG:
+        return info
+    try:
+        r = subprocess.run([FFMPEG, "-hide_banner", "-i", str(p)], capture_output=True, timeout=60, **NOWIN)
+        t = r.stderr.decode("utf-8", "replace")
+    except Exception:
+        return info
+    m = re.search(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)", t)
+    if m:
+        info["dur"] = round(int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3)), 2)
+    m = re.search(r"Stream #[^\n]*?: Video: (\w+)[^\n]*?[ ,](\d{2,5})x(\d{2,5})[ ,\[]", t)
+    if m:
+        info["vcodec"], info["w"], info["h"] = m.group(1), int(m.group(2)), int(m.group(3))
+    m = re.search(r"Stream #[^\n]*?: Audio: (\w+)", t)
+    info["acodec"] = m.group(1) if m else ""
+    rot = re.search(r"rotation of (-?[\d.]+) degrees", t) or re.search(r"\brotate\s*:\s*(-?\d+)", t)
+    if rot and "w" in info and round(abs(float(rot.group(1)))) % 180 == 90:
+        info["w"], info["h"] = info["h"], info["w"]
+    m = re.search(r"Input #0, ([\w,]+), from", t)
+    info["fmt"] = m.group(1) if m else ""
+    m = re.search(r"location(?:\.ISO6709)?\s*:\s*([+-]\d+(?:\.\d+)?)([+-]\d+(?:\.\d+)?)", t)
+    if m:
+        lat, lon = float(m.group(1)), float(m.group(2))
+        if -90 <= lat <= 90 and -180 <= lon <= 180 and (abs(lat) > 1e-6 or abs(lon) > 1e-6):
+            info["lat"], info["lon"] = lat, lon
+    m = re.search(r"com\.apple\.quicktime\.creationdate\s*:\s*(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)", t)
+    if m:  # iPhone: local time of the recording
+        info["taken"] = datetime.fromisoformat(m.group(1))
+    else:
+        m = re.search(r"creation_time\s*:\s*(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z?)", t)
+        d = _local_from_utc(m.group(1)) if m else None
+        if d and 1995 <= d.year <= datetime.now().year + 1:
+            info["taken"] = d
+    return info
+
+
+def video_frame(p: Path, at=1.0, size=1024):
+    """One frame of a video as JPEG bytes (for recognition)."""
+    for ss in (["-ss", f"{at:.2f}"], []):
+        try:
+            r = subprocess.run([FFMPEG, "-v", "error", *ss, "-i", str(p), "-frames:v", "1",
+                                "-vf", f"scale='min({size},iw)':-2", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+                               capture_output=True, timeout=60, **NOWIN)
+            if r.stdout:
+                return r.stdout
+        except Exception:
+            pass
+    raise RuntimeError("no frame")
+
+
+def thumb_time(dur):
+    """A frame a little into the video (the first frames are often dark or blurry)."""
+    if not dur or dur <= 0:
+        return 1.0
+    return max(0.0, min(dur * 0.15, 8.0))
+
+
+def delete_to_recycle_bin(p: Path):
+    """Windows: moves the file to the Recycle Bin (it can be restored). Elsewhere: deletes it. Returns an error or None."""
+    if not IS_WIN:
+        try:
+            p.unlink()
+            return None
+        except OSError as e:
+            return str(e)
+    import ctypes
+    from ctypes import wintypes
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [("hwnd", wintypes.HWND), ("wFunc", wintypes.UINT), ("pFrom", ctypes.c_void_p), ("pTo", ctypes.c_void_p),
+                    ("fFlags", ctypes.c_ushort), ("fAnyOperationsAborted", wintypes.BOOL),
+                    ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", ctypes.c_void_p)]
+    buf = ctypes.create_unicode_buffer(str(p.resolve()) + "\0")  # the list must end with two zeros
+    FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_SILENT, FOF_NOERRORUI = 3, 0x40, 0x10, 0x4, 0x400
+    op = SHFILEOPSTRUCTW(None, FO_DELETE, ctypes.cast(buf, ctypes.c_void_p), None,
+                         FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI, False, None, None)
+    try:
+        rc = ctypes.windll.shell32.SHFileOperationW(ctypes.byref(op))
+    except Exception as e:
+        return str(e)
+    if rc or op.fAnyOperationsAborted:
+        return f"Windows error {rc}"
+    return "the file is still there" if p.exists() else None
+
+
+DUP_BITS = 22          # how many of the 256 picture-hash bits may differ between two copies of the same photo
+DUP_BITS_NO_AI = 14    # stricter when there are no recognition vectors to confirm it
+DUP_COS = 0.90         # and the recognition vectors must agree this much
+POPCOUNT = bytes(bin(i).count("1") for i in range(256))
+
+
+def dhash(im):
+    """256-bit picture hash: survives resizing, recompression and small edits."""
+    import numpy as np
+    a = np.asarray(im.convert("L").resize((17, 16), Image.BILINEAR), dtype=np.int16)
+    return np.packbits(a[:, 1:] > a[:, :-1]).tobytes()
+
+
+def codec_str(vi):
+    return f'{vi.get("vcodec", "")}/{vi.get("acodec", "")}/{vi.get("fmt", "")}'
 
 
 def video_date(p: Path):
@@ -283,8 +403,11 @@ class Library:
         self.thumbs = self.meta / "thumbs"
         self.previews = self.meta / "previews"
         self.incoming = self.meta / "incoming"
+        self.vcache = self.meta / "video"
         self.trash_dir = self.root / "Trash"
-        for p in (self.root, self.meta, self.thumbs, self.previews, self.incoming):
+        self.vjobs, self.vsem = {}, threading.Semaphore(1)
+        self.dups_dirty, self.dup_groups, self.dup_lock = True, [], threading.Lock()
+        for p in (self.root, self.meta, self.thumbs, self.previews, self.incoming, self.vcache):
             p.mkdir(parents=True, exist_ok=True)
         if IS_WIN:
             try:
@@ -315,12 +438,15 @@ class Library:
             CREATE TABLE IF NOT EXISTS tags(photo_id INTEGER, tag TEXT, score REAL, by TEXT, UNIQUE(photo_id, tag));
             CREATE TABLE IF NOT EXISTS hidden_tags(photo_id INTEGER, tag TEXT, UNIQUE(photo_id, tag));
             CREATE TABLE IF NOT EXISTS emb(photo_id INTEGER PRIMARY KEY, v BLOB);
+            CREATE TABLE IF NOT EXISTS phash(photo_id INTEGER PRIMARY KEY, h BLOB);
+            CREATE TABLE IF NOT EXISTS dup_ignore(a INTEGER, b INTEGER, UNIQUE(a, b));
             CREATE INDEX IF NOT EXISTS idx_photos_taken ON photos(taken);
             CREATE INDEX IF NOT EXISTS idx_tags_photo ON tags(photo_id);
             """)
             cols = {r["name"] for r in self.db.execute("PRAGMA table_info(photos)")}
             for c, t in (("app", "TEXT"), ("orig", "TEXT"), ("place", "TEXT"), ("country", "TEXT"),
-                         ("rot", "INTEGER DEFAULT 0"), ("ai_done", "INTEGER DEFAULT 0"), ("how", "TEXT"), ("caption", "TEXT"), ("cloud_done", "INTEGER DEFAULT 0")):
+                         ("rot", "INTEGER DEFAULT 0"), ("ai_done", "INTEGER DEFAULT 0"), ("how", "TEXT"), ("caption", "TEXT"), ("cloud_done", "INTEGER DEFAULT 0"),
+                         ("dur", "REAL"), ("codec", "TEXT")):
                 if c not in cols:
                     self.db.execute(f"ALTER TABLE photos ADD COLUMN {c} {t}")
             try:
@@ -462,13 +588,15 @@ class Library:
                     w, h = h, w
         return taken, w, h, cam, lat, lon, software
 
-    def make_thumb(self, pid, f: Path, kind, rot=0):
+    def make_thumb(self, pid, f: Path, kind, rot=0, dur=None):
         out = self.thumbs / f"{pid}.jpg"
         try:
             if kind == "video":
                 if not FFMPEG:
                     return False
-                for ss in (["-ss", "1"], []):
+                if out.exists():
+                    out.unlink()
+                for ss in (["-ss", f"{thumb_time(dur):.2f}"], []):
                     subprocess.run([FFMPEG, "-v", "error", "-y", *ss, "-i", str(f), "-frames:v", "1",
                                     "-vf", f"scale='min({THUMB},iw)':-2", str(out)], timeout=60,
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **NOWIN)
@@ -477,6 +605,7 @@ class Library:
                 if rot and out.exists():
                     with Image.open(out) as im:
                         im.rotate(-rot, expand=True).save(out, "JPEG", quality=82)
+                self._forget_phash(pid)
                 return out.exists()
             with Image.open(f) as im:
                 try:
@@ -489,6 +618,7 @@ class Library:
                 if rot:
                     t = t.rotate(-rot, expand=True)
                 t.save(out, "JPEG", quality=82)
+            self._forget_phash(pid)
             return True
         except Exception as e:
             print(f"  ! No thumbnail for {f.name}: {e}")
@@ -564,8 +694,12 @@ class Library:
                 taken, w, h_, cam, lat, lon, software = self.read_image(src)
             except Exception as e:
                 print(f"  ! Cannot read {name}: {e}")
-        elif ext in (".mp4", ".mov", ".m4v", ".3gp"):
-            taken = video_date(src)
+        vi = {}
+        if ext in VIDEO_EXT:
+            vi = video_info(src)
+            taken = vi.get("taken") or (video_date(src) if ext in (".mp4", ".mov", ".m4v", ".3gp") else None)
+            w, h_ = vi.get("w", 0), vi.get("h", 0)
+            lat, lon = vi.get("lat"), vi.get("lon")
         taken = taken or date_from_name(name) or datetime.fromtimestamp(min(st.st_mtime, getattr(st, "st_ctime", st.st_mtime)))
         app = detect_source(name, orig, cam, software)
         kind = detect_kind(ext, app, cam, w, h_)
@@ -579,16 +713,17 @@ class Library:
             shutil.copy2(str(src), str(dest))
         with self.db_lock:
             cur = self.db.execute(
-                "INSERT INTO photos(path,name,hash,taken,size,w,h,cam,kind,lat,lon,source,added,app,orig,place,country,ai_done,how) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO photos(path,name,hash,taken,size,w,h,cam,kind,lat,lon,source,added,app,orig,place,country,ai_done,how,dur,codec) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (self.rel(dest), dest.name, h, taken.isoformat(timespec="seconds"), st.st_size, w, h_, cam, kind, lat, lon,
-                 root_src, datetime.now().isoformat(timespec="seconds"), app, orig, place, country, 2 if kind == "video" else 0,
-                 "upload" if not record_seen else mode))
+                 root_src, datetime.now().isoformat(timespec="seconds"), app, orig, place, country, 0,
+                 "upload" if not record_seen else mode, vi.get("dur"), codec_str(vi) if vi else None))
             pid = cur.lastrowid
             if record_seen:
                 self.db.execute("INSERT OR REPLACE INTO seen VALUES(?,?,?,?)", (str(src), st.st_mtime, "added", pid))
             self.db.commit()
-        self.make_thumb(pid, dest, kind)
+        self.make_thumb(pid, dest, kind, dur=vi.get("dur"))
+        self.dups_dirty = True
         self.status["added"] += 1
         self.bump()
         return "added", pid
@@ -725,12 +860,12 @@ class Library:
     # ---- describers (Claude or the built-in Qwen3-VL)
     def cloud_pending(self):
         with self.db_lock:
-            return self.db.execute("SELECT COUNT(*) c FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video'").fetchone()["c"]
+            return self.db.execute("SELECT COUNT(*) c FROM photos WHERE cloud_done=0 AND trash=0").fetchone()["c"]
 
     def cloud_step(self, cloud, labels, workers=3):
         """Describing with a describer: Claude (cloud) or the built-in Qwen3-VL. Same result shape."""
         with self.db_lock:
-            rows = self.db.execute("SELECT id,path,kind,cam,app,taken,rot FROM photos WHERE cloud_done=0 AND trash=0 AND kind!='video' LIMIT ?",
+            rows = self.db.execute("SELECT id,path,kind,cam,app,taken,rot,dur FROM photos WHERE cloud_done=0 AND trash=0 LIMIT ?",
                                    (workers * 2,)).fetchall()
         if not rows:
             return False
@@ -740,7 +875,10 @@ class Library:
         def one(r):
             f = self.abs(r["path"])
             try:
-                jpeg = CloudAI.image_bytes(f, r["rot"] or 0)
+                if r["kind"] == "video":
+                    jpeg = CloudAI.image_bytes(io.BytesIO(video_frame(f, thumb_time(r["dur"]))), r["rot"] or 0)
+                else:
+                    jpeg = CloudAI.image_bytes(f, r["rot"] or 0)
             except Exception:
                 jpeg = CloudAI.image_bytes(self.thumbs / f"{r['id']}.jpg")  # RAW and similar: via the thumbnail
             return r, cloud.describe(jpeg, labels)
@@ -804,7 +942,7 @@ class Library:
     # ---- data for the UI
     def snapshot(self):
         with self.db_lock:
-            rows = self.db.execute("SELECT id,path,name,taken,size,w,h,cam,kind,lat,lon,fav,trash,source,app,place,country,rot,ai_done,caption,cloud_done FROM photos ORDER BY taken DESC").fetchall()
+            rows = self.db.execute("SELECT id,path,name,taken,size,w,h,cam,kind,lat,lon,fav,trash,source,app,place,country,rot,ai_done,caption,cloud_done,dur,codec FROM photos ORDER BY taken DESC").fetchall()
             ap, tg = {}, {}
             for r in self.db.execute("SELECT album_id, photo_id FROM album_photos"):
                 ap.setdefault(r["photo_id"], []).append(r["album_id"])
@@ -814,6 +952,7 @@ class Library:
                 tb.setdefault(r["photo_id"], {})[r["tag"]] = r["by"]
             albums = [dict(r) for r in self.db.execute("SELECT * FROM albums ORDER BY name")]
             dups = self.db.execute("SELECT COUNT(*) c FROM seen WHERE result='duplicate'").fetchone()["c"]
+        dups += sum(len(g["ids"]) - 1 for g in self.dup_groups)
         mine = [p for p in self.cfg.get("my_places", []) if p.get("lat") is not None]
         def myplace(lat, lon):
             if lat is None or not mine:
@@ -831,13 +970,254 @@ class Library:
             total = 0
         return {"photos": photos, "albums": albums, "duplicates": dups, "library": str(self.root), "disk_total": total}
 
-    def duplicates(self):
+    def skipped_duplicates(self):
+        """Files outside the library that were skipped because the same file is already in the library."""
         with self.db_lock:
-            rows = self.db.execute("""SELECT s.path AS src, s.dup_of AS of_id, p.path AS of_path FROM seen s
+            rows = self.db.execute("""SELECT s.path AS src, s.dup_of AS of_id, p.path AS of_path, p.trash AS of_trash FROM seen s
                                       LEFT JOIN photos p ON p.id = s.dup_of WHERE s.result='duplicate' ORDER BY s.path""").fetchall()
-        return [dict(r) for r in rows]
+        out, gone = [], []
+        for r in rows:
+            try:
+                size = os.path.getsize(r["src"])
+            except OSError:
+                gone.append(r["src"])
+                continue
+            out.append(dict(r, size=size, safe=bool(r["of_path"]) and not r["of_trash"]))
+        if gone:
+            with self.db_lock:
+                self.db.executemany("UPDATE seen SET result='removed' WHERE path=?", [(g,) for g in gone])
+                self.db.commit()
+        return out
+
+    def remove_skipped(self, paths):
+        """Deletes skipped duplicate files outside the library (to the Recycle Bin on Windows).
+        Only when the same file is still in the library and the file was not changed in the meantime."""
+        with self.db_lock:
+            rows = {r["src"]: r for r in self.db.execute(
+                """SELECT s.path AS src, p.path AS lp, p.hash AS hash, p.trash AS trash FROM seen s
+                   LEFT JOIN photos p ON p.id = s.dup_of WHERE s.result='duplicate'""")}
+        done, failed = 0, []
+        for sp in paths:
+            r = rows.get(sp)
+            if not r:
+                continue
+            src = Path(sp)
+            try:
+                if not r["lp"] or r["trash"] or not self.abs(r["lp"]).exists():
+                    raise RuntimeError("the library copy is missing or in Trash")
+                if is_inside(src, self.root):
+                    raise RuntimeError("the file is inside the library")
+                if src.exists():
+                    if self.file_hash(src) != r["hash"]:
+                        raise RuntimeError("the file has changed since it was compared")
+                    err = delete_to_recycle_bin(src)
+                    if err:
+                        raise RuntimeError(err)
+                with self.db_lock:
+                    self.db.execute("UPDATE seen SET result='removed' WHERE path=?", (sp,))
+                    self.db.commit()
+                done += 1
+            except Exception as e:
+                failed.append({"path": sp, "error": str(e)})
+                print("  ! Could not delete", sp, e)
+        self.bump()
+        return done, failed
+
+    def _forget_phash(self, pid):
+        with self.db_lock:
+            self.db.execute("DELETE FROM phash WHERE photo_id=?", (pid,))
+        self.dups_dirty = True
+
+    def ensure_phash(self):
+        with self.db_lock:
+            rows = self.db.execute("SELECT id FROM photos WHERE trash=0 AND id NOT IN (SELECT photo_id FROM phash)").fetchall()
+        for n, r in enumerate(rows, 1):
+            try:
+                with Image.open(self.thumbs / f"{r['id']}.jpg") as im:
+                    h = dhash(im)
+            except Exception:
+                h = b""
+            with self.db_lock:
+                self.db.execute("INSERT OR REPLACE INTO phash VALUES(?,?)", (r["id"], h))
+                if n % 200 == 0:
+                    self.db.commit()
+        if rows:
+            with self.db_lock:
+                self.db.commit()
+            self.dups_dirty = True
+
+    def find_similar_copies(self):
+        """Groups of the same photo in the library in different files (resized, recompressed, sent through an app…)."""
+        import numpy as np
+        with self.db_lock:
+            rows = self.db.execute("""SELECT p.id, p.kind, p.w, p.h, p.size, p.fav, x.h AS ph FROM photos p JOIN phash x ON x.photo_id = p.id
+                                      WHERE p.trash = 0 AND length(x.h) = 32 ORDER BY p.id""").fetchall()
+            ignored = {(r[0], r[1]) for r in self.db.execute("SELECT a, b FROM dup_ignore")}
+        if len(rows) < 2:
+            return []
+        H = np.frombuffer(b"".join(r["ph"] for r in rows), dtype=np.uint8).reshape(-1, 32)
+        pop = np.frombuffer(POPCOUNT, dtype=np.uint8)
+        edges = pop[H].sum(1, dtype=np.int32)
+        idx = np.nonzero((edges >= 16) & (edges <= 240))[0]      # (almost) flat pictures can't be compared
+        is_video = np.array([r["kind"] == "video" for r in rows])
+        ids, E = self.emb_matrix()
+        pos = {int(i): k for k, i in enumerate(ids)}
+        pairs = []
+        Hs = H[idx]
+        for k in range(0, len(idx), 32):
+            D = pop[Hs[k:k + 32, None, :] ^ Hs[None, :, :]].sum(-1, dtype=np.int32)
+            for a, b in zip(*np.nonzero(D <= DUP_BITS)):
+                a += k
+                if a >= b:
+                    continue
+                i, j = int(idx[a]), int(idx[b])
+                if is_video[i] != is_video[j]:
+                    continue
+                pa, pb = rows[i]["id"], rows[j]["id"]
+                if (pa, pb) in ignored:
+                    continue
+                ea, eb = pos.get(pa), pos.get(pb)
+                if ea is not None and eb is not None:
+                    if float(E[ea] @ E[eb]) < DUP_COS:
+                        continue
+                elif D[a - k, b] > DUP_BITS_NO_AI:
+                    continue
+                pairs.append((i, j))
+        parent = list(range(len(rows)))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        for i, j in pairs:
+            parent[find(i)] = find(j)
+        groups = {}
+        for i, j in pairs:
+            for x in (i, j):
+                groups.setdefault(find(x), set()).add(x)
+        out = []
+        for g in groups.values():
+            g = sorted(g)
+            best = max(g, key=lambda x: ((rows[x]["w"] or 0) * (rows[x]["h"] or 0), rows[x]["size"] or 0, rows[x]["fav"] or 0, -x))
+            out.append({"ids": [rows[x]["id"] for x in g], "keep": rows[best]["id"]})
+        return out
+
+    def similar_copies(self):
+        with self.dup_lock:
+            if self.dups_dirty:
+                self.dups_dirty = False
+                self.ensure_phash()
+                self.dups_dirty = False
+                try:
+                    self.dup_groups = self.find_similar_copies()
+                except Exception as e:
+                    print("Duplicates:", e)
+            return self.dup_groups
+
+    def ignore_duplicates(self, ids):
+        ids = sorted(set(ids))
+        with self.db_lock:
+            for a in range(len(ids)):
+                for b in range(a + 1, len(ids)):
+                    self.db.execute("INSERT OR IGNORE INTO dup_ignore VALUES(?,?)", (ids[a], ids[b]))
+            self.db.commit()
+        self.dups_dirty = True
+
+    # ---- videos
+    def video_backfill(self):
+        """Videos added by older versions: duration, codecs, size, GPS and a better thumbnail; then recognition."""
+        with self.db_lock:
+            rows = self.db.execute("SELECT id, path, rot, lat FROM photos WHERE kind='video' AND dur IS NULL").fetchall()
+        if rows:
+            print(f"Updating {len(rows)} videos…")
+        for r in rows:
+            f = self.abs(r["path"])
+            vi = video_info(f) if f.exists() else {}
+            with self.db_lock:
+                self.db.execute("UPDATE photos SET dur=?, codec=?, ai_done=0 WHERE id=?", (vi.get("dur", -1), codec_str(vi) if vi else None, r["id"]))
+                if vi.get("w"):
+                    self.db.execute("UPDATE photos SET w=?, h=? WHERE id=?", (vi["w"], vi["h"], r["id"]))
+                if r["lat"] is None and vi.get("lat") is not None:
+                    place, country = self.places.lookup(vi["lat"], vi["lon"])
+                    self.db.execute("UPDATE photos SET lat=?, lon=?, place=?, country=? WHERE id=?",
+                                    (vi["lat"], vi["lon"], place, country, r["id"]))
+                self.db.commit()
+            if f.exists():
+                self.make_thumb(r["id"], f, "video", r["rot"] or 0, vi.get("dur"))
+        if rows:
+            self.bump()
+
+    def video_state(self, pid):
+        """How the video can be played: directly, from the converted copy, or it is being converted."""
+        with self.db_lock:
+            r = self.db.execute("SELECT path, codec FROM photos WHERE id=? AND kind='video'", (pid,)).fetchone()
+        if not r:
+            return {"state": "none"}
+        if (self.vcache / f"{pid}.mp4").exists():
+            return {"state": "ready", "src": f"/vcache/{pid}.mp4"}
+        job = self.vjobs.get(pid)
+        if job:
+            return dict(job)
+        return {"state": "direct" if self.plays_directly(r["path"], r["codec"]) else "convert"}
+
+    @staticmethod
+    def plays_directly(path, codec):
+        if Path(path).suffix.lower() not in BROWSER_VIDEO:
+            return False
+        v, a, _ = ((codec or "") + "//").split("/")[:3]
+        return not codec or (v in DIRECT_VCODECS and a in DIRECT_ACODECS)
+
+    def prepare_video(self, pid):
+        if (self.vcache / f"{pid}.mp4").exists() or self.vjobs.get(pid, {}).get("state") == "working":
+            return self.video_state(pid)
+        with self.db_lock:
+            r = self.db.execute("SELECT path, codec, dur FROM photos WHERE id=? AND kind='video'", (pid,)).fetchone()
+        if not r or not FFMPEG:
+            return {"state": "error", "error": "Videos can't be converted on this computer."}
+        self.vjobs[pid] = {"state": "working", "progress": 0}
+        threading.Thread(target=self._convert, args=(pid, self.abs(r["path"]), r["dur"] or 0, r["codec"] or ""), daemon=True).start()
+        return dict(self.vjobs[pid])
+
+    def _convert(self, pid, f, dur, codec):
+        """Makes a copy that every browser plays (H.264/AAC MP4). Only the copy in .fotoarhiva is written."""
+        out, tmp = self.vcache / f"{pid}.mp4", self.vcache / f"{pid}.part.mp4"
+        v, a, _ = (codec + "//").split("/")[:3]
+        reencode = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                    "-vf", "scale=w='trunc(min(1280,iw)/2)*2':h=-2", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k"]
+        tries = []
+        if v == "h264":  # only the container is wrong (e.g. MKV, AVI, MTS): fast, no quality loss
+            tries.append(["-c:v", "copy"] + (["-c:a", "copy"] if a in ("aac", "") else ["-c:a", "aac", "-b:a", "160k"]))
+        tries.append(reencode)
+        with self.vsem:
+            for args in tries:
+                cmd = [FFMPEG, "-v", "error", "-y", "-i", str(f), "-map", "0:v:0", "-map", "0:a:0?", *args,
+                       "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", str(tmp)]
+                try:
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, **NOWIN)
+                    for line in proc.stdout:
+                        if line.startswith(b"out_time_us=") or line.startswith(b"out_time_ms="):
+                            try:
+                                t = int(line.split(b"=")[1]) / 1e6
+                                if dur > 0:
+                                    self.vjobs[pid]["progress"] = round(min(0.99, t / dur), 3)
+                            except ValueError:
+                                pass
+                    rc = proc.wait()
+                except Exception as e:
+                    print("Video conversion:", e)
+                    rc = -1
+                if rc == 0 and tmp.exists() and tmp.stat().st_size > 0:
+                    tmp.replace(out)
+                    self.vjobs[pid] = {"state": "ready", "src": f"/vcache/{pid}.mp4"}
+                    return
+            if tmp.exists():
+                tmp.unlink()
+            self.vjobs[pid] = {"state": "error", "error": "This video could not be converted for playback. Use “Open” to play it in another program."}
+
 
     def update_photo(self, pid, data):
+        self.dups_dirty = True
         with self.db_lock:
             p = self.db.execute("SELECT * FROM photos WHERE id=?", (pid,)).fetchone()
             if not p:
@@ -900,11 +1280,13 @@ class Library:
                 f = self.abs(p["path"])
                 if f.exists():
                     f.unlink()
-                for t in (self.thumbs / f"{pid}.jpg", self.previews / f"{pid}.jpg"):
+                for t in (self.thumbs / f"{pid}.jpg", self.previews / f"{pid}.jpg", self.vcache / f"{pid}.mp4"):
                     if t.exists():
                         t.unlink()
-                for tbl in ("photos WHERE id", "album_photos WHERE photo_id", "tags WHERE photo_id", "emb WHERE photo_id", "hidden_tags WHERE photo_id"):
+                for tbl in ("photos WHERE id", "album_photos WHERE photo_id", "tags WHERE photo_id", "emb WHERE photo_id",
+                            "hidden_tags WHERE photo_id", "phash WHERE photo_id", "dup_ignore WHERE a", "dup_ignore WHERE b"):
                     self.db.execute(f"DELETE FROM {tbl}=?", (pid,))
+                self.dups_dirty = True
             self.db.commit()
         self.emb_cache = None
         self.bump()
@@ -953,7 +1335,7 @@ class Library:
         with self.db_lock:
             self.db.execute("DELETE FROM tags WHERE by='ai'")
             self.db.execute("DELETE FROM emb")
-            self.db.execute("UPDATE photos SET ai_done=0 WHERE kind!='video'")
+            self.db.execute("UPDATE photos SET ai_done=0")
             self.db.commit()
         self.emb_cache = None
         self.status["ai_done"] = 0
@@ -986,7 +1368,7 @@ class Library:
 
     def reanalyze(self):
         with self.db_lock:
-            self.db.execute("UPDATE photos SET ai_done=0 WHERE ai_done=1 OR (ai_done=2 AND kind!='video')")
+            self.db.execute("UPDATE photos SET ai_done=0 WHERE ai_done IN (1, 2)")
             self.db.commit()
         self.status["ai_done"] = 0
 
@@ -1223,6 +1605,8 @@ class App:
         rename_old_library(self.cfg)
         self.cfg.pop("tag_lang", None)
         self.auth = Auth(self.cfg)
+        if not self.cfg.get("configured"):
+            self.cfg["seen_version"] = VERSION  # a new installation has no "what's new"
         for m in self.cfg.get("my_places", []):  # the old default names of my places
             m["name"] = OLD_PLACES.get(m.get("name"), m.get("name"))
         self.places = Places()
@@ -1317,10 +1701,13 @@ class App:
                 "cloud_enabled": self.cfg.get("describer") == "cloud", "describer": self.cfg.get("describer", "off"), "cloud_model": self.cloud.model,
                 "cloud_key_hint": ("…" + self.cfg["cloud_key"][-4:]) if self.cfg.get("cloud_key") else "",
                 "cloud_running": self.cfg.get("cloud_running", True), "login": self.auth.view(),
+                "whats_new": bool(self.cfg.get("configured")) and self.cfg.get("seen_version") != VERSION,
                 "cloud_models": [{"id": k, "name": v["name"], "usd_per_1000": v["usd_per_1000"]} for k, v in CLOUD_MODELS.items()], "can_uninstall": uninstaller() is not None,
                 "models": [{"id": k, "name": v["name"], "name_en": v["name_en"], "about": v["about"], "multilingual": v["multilingual"]} for k, v in MODELS.items()]}
 
     def update_config(self, data):
+        if data.get("seen_version") == VERSION:
+            self.cfg["seen_version"] = VERSION
         if "sources" in data:
             srcs = []
             for s in data["sources"]:
@@ -1437,6 +1824,23 @@ class App:
                 print("Recognition error:", e)
                 time.sleep(5)
             time.sleep(2)
+
+    def maintenance(self):
+        """Background: updates videos from older versions and keeps the list of similar copies up to date."""
+        while not self.cfg.get("configured"):
+            time.sleep(3)
+        updated = None
+        while True:
+            lib = self.lib  # the library can be moved in Settings
+            try:
+                if updated is not lib:
+                    updated = lib
+                    lib.video_backfill()
+                if lib.dups_dirty and lib.status["state"] != "scanning":
+                    lib.similar_copies()
+            except Exception as e:
+                print("Maintenance:", e)
+            time.sleep(20)
 
     def fix_group(self, old, new, desc, ids):
         """The user said what the photos really are: the wrong tag is removed (and never comes back),
@@ -1694,7 +2098,13 @@ def make_handler(app: App):
             elif path == "/api/config":
                 self.send_json(app.config_view())
             elif path == "/api/duplicates":
-                self.send_json(lib.duplicates())
+                self.send_json({"similar": lib.similar_copies(), "skipped": lib.skipped_duplicates(), "windows": IS_WIN})
+            elif path.startswith("/api/video/"):
+                pid = path.rsplit("/", 1)[1]
+                self.send_json(lib.video_state(int(pid)) if pid.isdigit() else {"state": "none"})
+            elif path.startswith("/vcache/"):
+                pid = path.split("/")[2].split(".")[0]
+                self.send_file(lib.vcache / f"{pid}.mp4" if pid.isdigit() else None, cache=False)
             elif path == "/api/suggest-folders":
                 self.send_json(suggest_folders(lib.root))
             elif path == "/api/browse":
@@ -1797,7 +2207,7 @@ def make_handler(app: App):
                         self.wfile.write(b)
                     return
                 if path == "/api/upload":
-                    name = Path(unquote(self.headers.get("X-File-Name") or "slika.jpg")).name
+                    name = Path(unquote(self.headers.get("X-File-Name") or "photo.jpg")).name
                     mtime = float(self.headers.get("X-File-Mtime") or time.time() * 1000) / 1000
                     if Path(name).suffix.lower() not in IMAGE_EXT | VIDEO_EXT:
                         self.rfile.read(n)
@@ -1818,7 +2228,16 @@ def make_handler(app: App):
                 data = json.loads(self.rfile.read(n) or b"{}") if n else {}
                 parts = path.strip("/").split("/")
                 ids = [int(i) for i in data.get("ids", []) if str(i).isdigit()]
-                if path == "/api/scan":
+                if path.startswith("/api/video/") and path.endswith("/prepare"):
+                    pid = parts[2] if len(parts) > 2 else ""
+                    self.send_json(lib.prepare_video(int(pid)) if pid.isdigit() else {"state": "none"})
+                elif path == "/api/duplicates/ignore":
+                    lib.ignore_duplicates(ids)
+                    self.send_json({"ok": True})
+                elif path == "/api/duplicates/remove-skipped":
+                    done, failed = lib.remove_skipped([str(x) for x in data.get("paths", [])])
+                    self.send_json({"removed": done, "failed": failed})
+                elif path == "/api/scan":
                     app.wake.set()
                     self.send_json({"ok": True})
                 elif path == "/api/config":
@@ -1948,14 +2367,14 @@ def install_models():
     a = AI(DATA_DIR / "models", cfg.get("model", DEFAULT_MODEL))
     v = LocalVLM(DATA_DIR / "models")
     ok = True
-    for name, obj in (("Brzo prepoznavanje (SigLIP 2, ~400 MB)", a), ("Opishuvac na sliki (Qwen3-VL 4B, ~3 GB)", v)):
+    for name, obj in (("Quick recognition (SigLIP 2, ~400 MB)", a), ("Photo describer (Qwen3-VL 4B, ~3 GB)", v)):
         if obj.state == "missing_deps":
-            print(f"{name}: preskoknato (nedostasuva motor)", flush=True)
+            print(f"{name}: skipped (engine missing)", flush=True)
             continue
         if obj.downloaded():
-            print(f"{name}: vekje instalirano", flush=True)
+            print(f"{name}: already installed", flush=True)
             continue
-        print(f"{name}: go simnuvam...", flush=True)
+        print(f"{name}: downloading...", flush=True)
         t = threading.Thread(target=(lambda o=obj: o.download(then_load=False)) if obj is a else obj.download, daemon=True)
         t.start()
         last = -1
@@ -1966,10 +2385,10 @@ def install_models():
                 print(f"   {name}: {pct}%", flush=True)
             time.sleep(1)
         if obj.downloaded():
-            print(f"{name}: gotovo", flush=True)
+            print(f"{name}: done", flush=True)
         else:
             ok = False
-            print(f"{name}: NE USPEA - {obj.message.encode('ascii', 'replace').decode()}", flush=True)
+            print(f"{name}: FAILED - {obj.message.encode('ascii', 'replace').decode()}", flush=True)
     cfg = load_config()
     cfg["ai_requested"] = True
     save_config(cfg)
@@ -2009,6 +2428,7 @@ def main():
     print("This window can stay minimized. Close it to quit the app.")
     threading.Thread(target=app.watcher, daemon=True).start()
     threading.Thread(target=app.ai_worker, daemon=True).start()
+    threading.Thread(target=app.maintenance, daemon=True).start()
     threading.Thread(target=app.cloud_worker, daemon=True).start()
     if not no_browser:
         threading.Timer(0.6, lambda: open_in_chrome(url)).start()

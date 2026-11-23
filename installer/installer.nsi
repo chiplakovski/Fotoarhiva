@@ -8,7 +8,7 @@ SetCompressorDictSize 64
 !define APPNAME "Fotoarhiva"
 !define OLDNAME "Фотоархива"  ; shortcut name used by versions up to 2.4
 !define APPKEY "Fotoarhiva"
-!define VERSION "2.6.0"
+!define VERSION "2.7.0"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPKEY}"
 
 Name "${APPNAME}"
@@ -17,7 +17,7 @@ InstallDir "$LOCALAPPDATA\Programs\Fotoarhiva"
 InstallDirRegKey HKCU "Software\${APPKEY}" "InstallDir"
 RequestExecutionLevel user
 BrandingText "${APPNAME} ${VERSION}"
-VIProductVersion "2.5.0.0"
+VIProductVersion "${VERSION}.0"
 VIAddVersionKey /LANG=0 "ProductName" "Fotoarhiva"
 VIAddVersionKey /LANG=0 "FileDescription" "Fotoarhiva Setup"
 VIAddVersionKey /LANG=0 "FileVersion" "${VERSION}"
@@ -27,16 +27,23 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
 !define MUI_ICON "stage\fotoarhiva.ico"
 !define MUI_UNICON "stage\fotoarhiva.ico"
 !define MUI_ABORTWARNING
-!define MUI_WELCOMEPAGE_TITLE "Welcome to the Fotoarhiva setup"
-!define MUI_WELCOMEPAGE_TEXT "Fotoarhiva gathers all the photos on your computer in one place, organizes them by year and month and recognizes what is in them.$\r$\n$\r$\nEverything it needs is included. No administrator rights are needed.$\r$\n$\r$\nYour photos are never sent to the internet.$\r$\n$\r$\nClick Next to continue."
-!define MUI_FINISHPAGE_TITLE "Fotoarhiva is installed"
-!define MUI_FINISHPAGE_TEXT "Fotoarhiva is installed, together with the recognition models.$\r$\n$\r$\nWhen it opens, you choose which folders to import photos from. Recognition starts only after that."
+Var OldVersion   ; the installed version when this is an update, otherwise empty
+Var WTitle
+Var WText
+Var FTitle
+Var FText
+!define MUI_WELCOMEPAGE_TITLE "$WTitle"
+!define MUI_WELCOMEPAGE_TEXT "$WText"
+!define MUI_FINISHPAGE_TITLE "$FTitle"
+!define MUI_FINISHPAGE_TEXT "$FText"
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "Open Fotoarhiva now"
 !define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
 
 !insertmacro MUI_PAGE_WELCOME
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfUpdate
 !insertmacro MUI_PAGE_DIRECTORY
+!define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfUpdate
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -75,6 +82,32 @@ VIAddVersionKey /LANG=0 "LegalCopyright" "Fotoarhiva"
     Rename "${DIR}" "${DIR}.old$8"
   ${LBL}:
 !macroend
+
+Function .onInit
+  ReadRegStr $OldVersion HKCU "${UNINSTKEY}" "DisplayVersion"
+  ReadRegStr $0 HKCU "Software\${APPKEY}" "InstallDir"
+  StrCmp $OldVersion "" fresh
+  StrCmp $0 "" fresh
+  IfFileExists "$0\app\fotoarhiva.py" 0 fresh
+    StrCpy $INSTDIR $0
+    StrCpy $WTitle "Update Fotoarhiva"
+    StrCpy $WText "Fotoarhiva $OldVersion is installed on this computer. This updates it to version ${VERSION}.$\r$\n$\r$\nYour photos, albums, tags, settings, login and recognition models all stay. Nothing is downloaded again.$\r$\n$\r$\nNew: better videos (all formats play, duration, place, recognition) and finding and deleting duplicates.$\r$\n$\r$\nIf Fotoarhiva is open, it is closed for the update.$\r$\n$\r$\nClick Next to update."
+    StrCpy $FTitle "Fotoarhiva is updated"
+    StrCpy $FText "Fotoarhiva is updated to version ${VERSION}. Your photos and settings are unchanged."
+    Goto done
+  fresh:
+    StrCpy $OldVersion ""
+    StrCpy $WTitle "Welcome to the Fotoarhiva setup"
+    StrCpy $WText "Fotoarhiva gathers all the photos on your computer in one place, organizes them by year and month and recognizes what is in them.$\r$\n$\r$\nEverything it needs is included. No administrator rights are needed.$\r$\n$\r$\nYour photos are never sent to the internet.$\r$\n$\r$\nClick Next to continue."
+    StrCpy $FTitle "Fotoarhiva is installed"
+    StrCpy $FText "Fotoarhiva is installed, together with the recognition models.$\r$\n$\r$\nWhen it opens, sign in with admin / 0409979 and choose which folders to import photos from. Recognition starts only after that."
+  done:
+FunctionEnd
+
+Function SkipIfUpdate
+  StrCmp $OldVersion "" +2
+    Abort  ; an update keeps the folder and the models: nothing to choose
+FunctionEnd
 
 Function LaunchApp
   SetOutPath "$INSTDIR\app"

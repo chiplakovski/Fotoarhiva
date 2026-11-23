@@ -1,6 +1,6 @@
-# Fotoarhiva 2.6
+# Fotoarhiva 2.7
 
-**Download the installer:** [Fotoarhiva-Setup-2.6.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.6.0.exe)
+**Download the installer:** [Fotoarhiva-Setup-2.7.0.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.7.0.exe)
 
 Fotoarhiva is a Windows app that gathers all the photos on your computer in one place,
 organizes them by year and month and recognizes what is in them.
@@ -8,7 +8,7 @@ It opens in Chrome as its own window. Everything runs on your computer.
 
 ## Installation
 
-1. Download `Fotoarhiva-Setup-2.6.0.exe` and run it.
+1. Download `Fotoarhiva-Setup-2.7.0.exe` and run it.
    If Windows shows "Windows protected your PC": **More info → Run anyway** (see below).
 2. Keep **"Recognition models"** ticked in the setup. They are downloaded during installation
    (~3.5 GB, a few minutes) so the app is complete.
@@ -19,6 +19,13 @@ It opens in Chrome as its own window. Everything runs on your computer.
    - click **Start**. Only then do importing and recognition begin.
 
 There is a **Fotoarhiva** icon on the Desktop and in the Start menu.
+
+### Updating
+
+Download the new installer and run it over the existing installation. It recognizes the installed version
+and shows **"Update Fotoarhiva"**: the folder and the models are kept, nothing is downloaded again, and your photos,
+albums, tags, settings and login stay. A running Fotoarhiva is closed for the update. After the update the app shows
+what's new once.
 
 ### Sign-in
 
@@ -99,6 +106,30 @@ If only some photos are wrong, select them and click **"Not this"**.
 - **Tag by hand:** tag one photo (e.g. "Stainless steel machines") and the app also tags many similar photos.
   The more examples, the better. Remove a wrong tag with ×, it won't come back.
 - **My categories:** in Settings add a name and a short description. Photos are re-evaluated right away.
+
+## Videos
+
+- Videos are organized like photos (in a `Videos` folder of each month) and show their **duration** on the thumbnail.
+- **Every format plays** in the app. MP4, MOV and WebM play directly. MKV, AVI, MTS, 3GP and videos the browser
+  can't decode (for example some iPhone HEVC videos) are converted the first time you open them. The copy is stored
+  in `.fotoarhiva\video`, and the original is never changed.
+- The **place** is read from the phone's GPS in the video, and the capture date from the video itself.
+- Videos are **recognized and described** like photos (from a frame of the video), so you can search them.
+- Details show the duration, size and format (e.g. H264 · AAC).
+- Videos added by older versions are updated automatically in the background.
+
+## Duplicates
+
+Open **Duplicates** in the left menu (under Other). There are two lists:
+
+1. **The same photo in more than one file**: copies inside the library that are not byte-identical,
+   e.g. resized, recompressed by WhatsApp or Viber, slightly brighter or saved twice. In each group the largest copy is
+   marked **Best**. Click the copies you don't need, or **Select all extra copies**, then **Move to Trash**.
+   At least one copy of each photo always stays. **Not duplicates** hides a group for good.
+2. **Skipped files outside the library**: files that were not imported because exactly the same file is already in
+   Fotoarhiva (e.g. the same photo in Downloads and in Pictures). Select them, or **Select all**, and **Delete**
+   to free space. On Windows they go to the Recycle Bin. A file is only deleted when its copy is still in
+   the library (not in Trash) and the file hasn't changed since it was compared.
 
 ## Smart search
 
