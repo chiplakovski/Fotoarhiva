@@ -1,6 +1,6 @@
-# Fotoarhiva 2.7.1
+# Fotoarhiva 2.7.2
 
-**Download the installer:** [Fotoarhiva-Setup-2.7.1.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.7.1.exe)
+**Download the installer:** [Fotoarhiva-Setup-2.7.2.exe](https://github.com/chiplakovski/fotoarhiva/raw/main/Fotoarhiva-Setup-2.7.2.exe)
 
 Fotoarhiva is a Windows app that gathers all the photos on your computer in one place,
 organizes them by year and month and recognizes what is in them.
@@ -8,7 +8,7 @@ It opens in Chrome as its own window. Everything runs on your computer.
 
 ## Installation
 
-1. Download `Fotoarhiva-Setup-2.7.1.exe` and run it.
+1. Download `Fotoarhiva-Setup-2.7.2.exe` and run it.
    If Windows shows "Windows protected your PC": **More info → Run anyway** (see below).
 2. Keep **"Recognition models"** ticked in the setup. They are downloaded during installation
    (~3.5 GB, a few minutes) so the app is complete.

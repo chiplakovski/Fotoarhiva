@@ -825,7 +825,7 @@ function showLb(){
       <dt>Folder</dt><dd>${esc(p.path.split('/').slice(0,-1).join(' › '))}</dd>
     </dl>
     <div><div class="eyebrow">Tags</div><div class="tags" id="lb-tags">${(p.tags||[]).map(t=>`<span class="tag ${(p.tagby||{})[t]==='user'?'':'ai'}" title="${esc({ai:'Recognized locally',cloud:'Recognized by Claude',vlm:'Recognized by Qwen3-VL',learned:'Learned from your tags',user:'Your tag'}[(p.tagby||{})[t]]||'')}">${esc(tagName(t))}<button data-rm="${esc(t)}" title="Remove the tag">×</button></span>`).join('')}<input class="tagin" id="lb-tagin" placeholder="+ tag" list="taglist"><datalist id="taglist">${allTags().map(t=>`<option value="${esc(t)}">`).join('')}</datalist></div></div>
-    <div><div class="eyebrow">Albums</div><div class="tags">${albums.map(a=>`<span class="tag">${esc(a.name)}<button data-ral="${a.id}" title="Remove from the album">×</button></span>`).join('')}<select id="lb-album" class="tagin" style="width:auto"><option value="">+ to album</option>${data.albums.filter(a=>!p.albums.includes(a.id)).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select></div></div>
+    <div><div class="eyebrow">Albums</div><div class="tags">${albums.map(a=>`<span class="tag">${esc(a.name)}<button data-ral="${a.id}" title="Remove from the album">×</button></span>`).join('')}<select id="lb-album" class="tagin" style="width:auto"><option value="">+ to album</option>${data.albums.filter(a=>!p.albums.includes(a.id)).map(a=>`<option value="${a.id}">${esc(a.name)}</option>`).join('')}<option value="new">+ New album…</option></select></div></div>
     ${p.kind!=='video'?'<div><div class="eyebrow">Histogram</div><canvas class="hist" id="lb-hist" width="300" height="56"></canvas></div>':''}
     ${p.lat!=null?`<div><div class="eyebrow">Map</div><iframe loading="lazy" title="Map" src="https://www.openstreetmap.org/export/embed.html?bbox=${p.lon-pad},${p.lat-pad},${p.lon+pad},${p.lat+pad}&layer=mapnik&marker=${p.lat},${p.lon}"></iframe><a href="${loc}" target="_blank" rel="noopener" style="font-size:12px">Open larger map</a></div>`:''}
     <div id="lb-hist-wrap"><div class="eyebrow">History</div><div id="lb-history" class="muted" style="font-size:13px">…</div></div>
@@ -840,7 +840,13 @@ function showLb(){
   $('info').querySelectorAll('[data-rm]').forEach(b=>b.onclick=async()=>{const t=b.dataset.rm;await api(`/api/photo/${p.id}`,{remove_tag:t});p.tags=p.tags.filter(x=>x!==t);p._s=null;dirty=true;showLb()});
   $('info').querySelectorAll('[data-ral]').forEach(b=>b.onclick=async()=>{const a=+b.dataset.ral;await api(`/api/albums/${a}/remove`,{ids:[p.id]});p.albums=p.albums.filter(x=>x!==a);dirty=true;showLb()});
   $('lb-tagin').onkeydown=async e=>{if(e.key==='Enter'){const t=e.target.value.trim();if(!t)return;await api(`/api/photo/${p.id}`,{add_tag:t});p.tags=[...(p.tags||[]).filter(x=>x!==t),t];p.tagby={...(p.tagby||{}),[t]:'user'};p._s=null;dirty=true;showLb();toast(`“${t}” added. Similar photos will get it automatically.`);setTimeout(()=>$('lb-tagin')&&$('lb-tagin').focus(),0)}e.stopPropagation()};
-  $('lb-album').onchange=async e=>{const a=+e.target.value;if(!a)return;await api(`/api/albums/${a}/add`,{ids:[p.id]});p.albums.push(a);dirty=true;showLb()};
+  $('lb-album').onchange=async e=>{
+    let a=e.target.value;if(!a)return;
+    if(a==='new'){e.target.value='';const name=await promptBox('New album','Album name, e.g. Ohrid 2024');if(!name)return;
+      const color=PAL[data.albums.length%PAL.length];const r=await api('/api/albums',{name,color});a=r.id;
+      if(!data.albums.some(x=>x.id===a))data.albums.push({id:a,name,color});toast(`Album “${name}” created`)}
+    a=+a;await api(`/api/albums/${a}/add`,{ids:[p.id]});if(!p.albums.includes(a))p.albums.push(a);dirty=true;showLb();
+    const al=data.albums.find(x=>x.id===a);if(al)toast(`Added to “${al.name}”`)};
   if(p.kind!=='video')drawHist(p);
   loadHistory(p);
   if((status.ai||{}).state==='ready'&&p.ai_done===1)api(`/api/similar/${p.id}`).then(ids=>{if(!state.lb||state.lb.list[state.lb.idx]!==p||!ids.length)return;$('lb-simwrap').hidden=false;$('lb-sim').innerHTML=ids.slice(0,8).map(id=>`<img src="/thumb/${id}.jpg" data-sim="${id}" alt="" loading="lazy">`).join('');$('lb-sim').querySelectorAll('img').forEach(im=>im.onclick=()=>{const q=byId.get(+im.dataset.sim);if(!q)return;const i=state.lb.list.indexOf(q);if(i>=0)state.lb.idx=i;else{state.lb.list=[q];state.lb.idx=0}showLb()})}).catch(()=>{});

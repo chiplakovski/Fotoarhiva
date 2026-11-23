@@ -57,7 +57,7 @@ from vlm import LocalVLM  # noqa: E402
 from concurrent.futures import ThreadPoolExecutor  # noqa: E402
 import urllib.request, urllib.parse  # noqa: E402
 
-VERSION = "2.7.1"
+VERSION = "2.7.2"
 NEWS_VERSION = "2.7"  # the "what's new" message is shown once per feature version
 CONFIG_PATH = DATA_DIR / "config.json"
 IS_WIN = platform.system() == "Windows"
